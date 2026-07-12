@@ -1,0 +1,33 @@
+{
+  "downstreams": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "env": {
+        "EXAMPLE_TOKEN": "${EXAMPLE_TOKEN}"
+      }
+    },
+    "remote-search": {
+      "url": "https://example.com/mcp",
+      "transport": "streamable-http"
+    }
+  },
+  "compression": {
+    "default": {
+      "maxOutputTokens": 2000,
+      "htmlToMarkdown": true,
+      "stripBase64": true,
+      "jsonSummary": true,
+      "bypass": false
+    },
+    "perTool": {
+      "filesystem/read_file": {
+        "maxOutputTokens": 8000
+      }
+    }
+  },
+  "report": {
+    "enabled": true,
+    "markdownPath": "./context-firewall-report.md"
+  }
+}
