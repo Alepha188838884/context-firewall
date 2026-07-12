@@ -3,10 +3,16 @@
   "version": "0.1.0",
   "description": "MCP proxy that collapses 50+ downstream tools into 3 meta-tools and compresses tool outputs (HTML, base64, huge JSON) so AI agents spend far fewer context tokens - works with any MCP client, any model.",
   "type": "module",
-  "main": "index.js",
   "bin": {
     "context-firewall": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh.md",
+    "LICENSE",
+    "context-firewall.example.json"
+  ],
   "engines": {
     "node": ">=22"
   },
