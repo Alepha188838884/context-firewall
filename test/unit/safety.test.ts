@@ -40,6 +40,14 @@ describe('isSecuritySensitive', () => {
     });
   }
 
+  it('flags "deprecated" (regression test: trailing \\b previously blocked deprecat+suffix matches)', () => {
+    expect(isSecuritySensitive({}, 'This API is deprecated, please migrate.')).toBe(true);
+  });
+
+  it('flags "deprecation" (regression test: trailing \\b previously blocked deprecat+suffix matches)', () => {
+    expect(isSecuritySensitive({}, 'Scheduled for deprecation next quarter.')).toBe(true);
+  });
+
   const chineseKeywords = ['权限', '拒绝', '警告', '错误', '失败', '确认', '过期'];
 
   for (const kw of chineseKeywords) {

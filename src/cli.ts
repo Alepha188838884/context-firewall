@@ -1,11 +1,14 @@
 #!/usr/bin/env node
+import { writeFileSync } from 'node:fs';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { loadConfig } from './config.js';
 import { createLogger } from './log.js';
 import { DownstreamManager } from './downstream/manager.js';
 import { createGateway } from './server/gateway.js';
 import { ArtifactStore } from './artifacts.js';
-import type { CallStats } from './types.js';
+import { TokenCounter } from './tokens.js';
+import { SessionReport } from './report.js';
+import { LIST_TOOL_CATEGORIES, SEARCH_TOOLS, INVOKE_TOOL, READ_MORE } from './server/meta-tools.js';
 
 const log = createLogger('context-firewall');
 
@@ -62,8 +65,8 @@ async function main(): Promise<void> {
 
   const manager = new DownstreamManager(config, log);
   const store = new ArtifactStore();
-  // Collected but not yet consumed - the report module (next task) will render these.
-  const callStats: CallStats[] = [];
+  const tokenCounter = new TokenCounter(log);
+  const report = new SessionReport(tokenCounter);
 
   // Connect the upstream transport first so the MCP client handshake completes promptly -
   // downstream connections can be slow and must not block it.
@@ -72,14 +75,29 @@ async function main(): Promise<void> {
     logger: log,
     config,
     store,
-    onCallStats: (stats) => callStats.push(stats),
+    onCallStats: (stats) => report.recordCall(stats),
   });
   const transport = new StdioServerTransport();
   await gateway.connect(transport);
   log.info('gateway connected on stdio');
 
+  const writeReport = (): void => {
+    if (config.report?.enabled === false) {
+      return;
+    }
+    process.stderr.write(`${report.render()}\n`);
+    if (config.report?.markdownPath) {
+      try {
+        writeFileSync(config.report.markdownPath, report.renderMarkdown());
+      } catch (err) {
+        log.warn(`failed to write markdown report: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  };
+
   const shutdown = async (signal: string): Promise<void> => {
     log.info(`received ${signal}, shutting down`);
+    writeReport();
     await manager.close();
     process.exit(0);
   };
@@ -100,6 +118,14 @@ async function main(): Promise<void> {
   const connected = states.filter((s) => s.status === 'connected');
   const totalTools = connected.reduce((sum, s) => sum + s.toolCount, 0);
   log.info(`connected ${connected.length}/${states.length} downstreams, ${totalTools} tools total`);
+
+  const allTools = manager.getRegistry().getAllTools();
+  const rawChars = JSON.stringify(allTools).length;
+  const exposedChars = [LIST_TOOL_CATEGORIES, SEARCH_TOOLS, INVOKE_TOOL, READ_MORE].reduce(
+    (sum, t) => sum + JSON.stringify({ name: t.name, description: t.description, inputSchema: t.inputSchema }).length,
+    0
+  );
+  report.setDefinitions(rawChars, exposedChars, allTools.length);
 }
 
 main().catch((err) => {

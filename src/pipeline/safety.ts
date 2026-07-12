@@ -1,7 +1,7 @@
 // 安全红线,勿删:压缩绝不静默丢弃安全相关输出(设计文档 §3.2/§5)
 
 const SAFETY_KEYWORDS_EN =
-  /\b(error|failed|failure|denied|unauthorized|forbidden|permission|not allowed|warning|caution|deprecat|confirm|are you sure|invalid|expired|rate.?limit)\b/i;
+  /\b(error|failed|failure|denied|unauthorized|forbidden|permission|not allowed|warning|caution|deprecat\w*|confirm|are you sure|invalid|expired|rate.?limit)\b/i;
 const SAFETY_KEYWORDS_ZH = /权限|拒绝|警告|错误|失败|确认|过期/;
 
 const PREFIX_SCAN_LENGTH = 500;
