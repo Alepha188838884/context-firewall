@@ -4,10 +4,18 @@ import type { ArtifactStore } from '../artifacts.js';
 import type { Logger } from '../log.js';
 import { isSecuritySensitive } from './safety.js';
 import { truncateStage, budgetChars } from './truncate.js';
+import { stripBase64Stage } from './base64.js';
+import { htmlToMarkdownStage } from './html.js';
+import { jsonSummaryStage } from './json-summary.js';
 
-// Stage order for the normal compression path. Currently just truncation; later stages
-// (html-to-markdown, json summary, base64 stripping, ...) slot in here.
-export const DEFAULT_STAGES: PipelineStage[] = [truncateStage];
+// Stage order for the normal compression path: strip binary blobs first, then convert HTML
+// markup, then collapse repetitive JSON structure, then truncate whatever's left over budget.
+export const DEFAULT_STAGES: PipelineStage[] = [
+  stripBase64Stage,
+  htmlToMarkdownStage,
+  jsonSummaryStage,
+  truncateStage,
+];
 
 // Even bypassed-for-safety content gets truncated past this size, so a single runaway
 // error dump can't blow out the caller's context.

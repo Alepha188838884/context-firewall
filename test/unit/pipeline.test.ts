@@ -44,7 +44,9 @@ describe('runPipeline', () => {
   it('truncates output over budget, appending a read_more annotation with a valid handle and offset', () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
-    const longText = 'x'.repeat(10000);
+    // Alternating char/space (not a run of base64-alphabet chars) so this exercises the
+    // truncate stage specifically, without incidentally matching stripBase64Stage's pattern.
+    const longText = 'x '.repeat(5000);
     const result = textResult(longText);
     const policy = policyWithBudget(100); // budget = 350 chars
 
