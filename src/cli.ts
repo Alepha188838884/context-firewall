@@ -1,7 +1,9 @@
 #!/usr/bin/env node
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { loadConfig } from './config.js';
 import { createLogger } from './log.js';
 import { DownstreamManager } from './downstream/manager.js';
+import { createGateway } from './server/gateway.js';
 
 const log = createLogger('context-firewall');
 
@@ -57,12 +59,13 @@ async function main(): Promise<void> {
   log.info(`config loaded, ${Object.keys(config.downstreams).length} downstreams`);
 
   const manager = new DownstreamManager(config, log);
-  await manager.connectAll();
 
-  const states = manager.getServerStates();
-  const connected = states.filter((s) => s.status === 'connected');
-  const totalTools = connected.reduce((sum, s) => sum + s.toolCount, 0);
-  log.info(`connected ${connected.length}/${states.length} downstreams, ${totalTools} tools total`);
+  // Connect the upstream transport first so the MCP client handshake completes promptly -
+  // downstream connections can be slow and must not block it.
+  const gateway = createGateway(manager, log);
+  const transport = new StdioServerTransport();
+  await gateway.connect(transport);
+  log.info('gateway connected on stdio');
 
   const shutdown = async (signal: string): Promise<void> => {
     log.info(`received ${signal}, shutting down`);
@@ -76,6 +79,16 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => {
     void shutdown('SIGTERM');
   });
+  transport.onclose = () => {
+    void shutdown('transport close');
+  };
+
+  await manager.connectAll();
+
+  const states = manager.getServerStates();
+  const connected = states.filter((s) => s.status === 'connected');
+  const totalTools = connected.reduce((sum, s) => sum + s.toolCount, 0);
+  log.info(`connected ${connected.length}/${states.length} downstreams, ${totalTools} tools total`);
 }
 
 main().catch((err) => {
