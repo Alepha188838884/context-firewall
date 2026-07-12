@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { loadConfig } from './config.js';
 import { createLogger } from './log.js';
+import { DownstreamManager } from './downstream/manager.js';
 
 const log = createLogger('context-firewall');
 
@@ -33,7 +34,7 @@ function parseArgs(argv: string[]): { config?: string; help: boolean; version: b
   return result;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.help) {
@@ -49,10 +50,35 @@ function main(): void {
   if (!args.config) {
     log.error('missing required argument --config <path>');
     process.exit(1);
+    return;
   }
 
   const config = loadConfig(args.config);
   log.info(`config loaded, ${Object.keys(config.downstreams).length} downstreams`);
+
+  const manager = new DownstreamManager(config, log);
+  await manager.connectAll();
+
+  const states = manager.getServerStates();
+  const connected = states.filter((s) => s.status === 'connected');
+  const totalTools = connected.reduce((sum, s) => sum + s.toolCount, 0);
+  log.info(`connected ${connected.length}/${states.length} downstreams, ${totalTools} tools total`);
+
+  const shutdown = async (signal: string): Promise<void> => {
+    log.info(`received ${signal}, shutting down`);
+    await manager.close();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => {
+    void shutdown('SIGINT');
+  });
+  process.on('SIGTERM', () => {
+    void shutdown('SIGTERM');
+  });
 }
 
-main();
+main().catch((err) => {
+  log.error(`fatal error: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+  process.exit(1);
+});
