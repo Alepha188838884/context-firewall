@@ -88,7 +88,11 @@ export class ArtifactStore {
       return null;
     }
 
-    const end = Math.min(offset + length, totalLength);
+    // A non-positive length would otherwise produce an empty slice with hasMore: true and
+    // nextOffset === offset, so a caller that blindly follows nextOffset would loop forever.
+    const effectiveLength = length > 0 ? length : 8000;
+
+    const end = Math.min(offset + effectiveLength, totalLength);
     const text = artifact.data.slice(offset, end);
     const hasMore = end < totalLength;
 

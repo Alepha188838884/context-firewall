@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { randomBytes } from 'node:crypto';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { runPipeline } from '../../src/pipeline/index.js';
 import { ArtifactStore } from '../../src/artifacts.js';
@@ -44,9 +45,10 @@ describe('runPipeline', () => {
   it('truncates output over budget, appending a read_more annotation with a valid handle and offset', () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
-    // Alternating char/space (not a run of base64-alphabet chars) so this exercises the
-    // truncate stage specifically, without incidentally matching stripBase64Stage's pattern.
-    const longText = 'x '.repeat(5000);
+    // A single-case run of one repeated char - since the A3 fix to stripBase64Stage requires
+    // upper+lower+digit before it will treat a run as base64, this is left untouched by that
+    // stage and exercises the truncate stage specifically.
+    const longText = 'x'.repeat(10000);
     const result = textResult(longText);
     const policy = policyWithBudget(100); // budget = 350 chars
 
@@ -61,6 +63,9 @@ describe('runPipeline', () => {
     expect(text).toContain('[Output truncated: showing');
     expect(text).toContain(`read_more("${stats.fullHandle}"`);
     expect(text.length).toBeLessThan(10000);
+    // truncateStage's own annotation already references the handle - A1's fallback must not
+    // append a second, redundant reference on top of it.
+    expect((text.match(/read_more\(/g) ?? []).length).toBe(1);
 
     // The handle must resolve to the full original text via the artifact store.
     const artifact = store.get(stats.fullHandle as string);
@@ -157,6 +162,81 @@ describe('runPipeline', () => {
     expect(stats.stagesApplied).toEqual(['truncate']);
     expect(stats.fullHandle).toBeDefined();
     expect(store.get(stats.fullHandle as string)?.data).toBe(longText);
+  });
+
+  describe('regression (A1): fullHandle fallback when no stage embeds a read_more() reference', () => {
+    function navItem(i: number): string {
+      return `<div class="nav-item" data-id="nav-${i}"><li><a href="/page${i}" title="Navigate to page ${i}">Page Number ${i} Link Text Here</a></li></div>`;
+    }
+    function paragraph(i: number): string {
+      return `<div class="content-block" data-block-id="block-${i}"><p style="margin:0;">This is paragraph number ${i} with some reasonably long placeholder text to pad out the content of the page for testing purposes.</p></div>`;
+    }
+    function bigHtmlFixture(): string {
+      const navItems = Array.from({ length: 40 }, (_, i) => navItem(i)).join('\n');
+      const paragraphs = Array.from({ length: 40 }, (_, i) => paragraph(i)).join('\n');
+      return `<!DOCTYPE html>\n<html>\n<body>\n<nav class="main-nav"><ul>${navItems}</ul></nav>\n<div class="content"><h1>Main Heading</h1>${paragraphs}</div>\n</body>\n</html>`;
+    }
+
+    it('appends a fallback annotation when htmlToMarkdown alone brings text under budget (truncate never runs)', () => {
+      const store = new ArtifactStore();
+      const logger = mockLogger();
+      const html = bigHtmlFixture();
+      const policy = policyWithBudget(2500); // budget = 8750 chars
+
+      const { result: out, stats } = runPipeline(textResult(html), policy, store, ctx, logger);
+
+      expect(stats.bypassed).toBeNull();
+      expect(stats.stagesApplied).toContain('htmlToMarkdown');
+      expect(stats.stagesApplied).not.toContain('truncate');
+      expect(stats.fullHandle).toBeDefined();
+
+      const outText = firstText(out);
+      expect(outText).toContain(`read_more("${stats.fullHandle}")`);
+      expect(outText).toContain('[Compressed');
+      expect(store.get(stats.fullHandle as string)?.data).toBe(html);
+    });
+
+    it('appends a fallback annotation when jsonSummary alone (long-string truncation, not array collapse) brings text under budget', () => {
+      const store = new ArtifactStore();
+      const logger = mockLogger();
+      const original = { description: 'a'.repeat(3000), notes: 'b'.repeat(3000), details: 'c'.repeat(3000) };
+      const text = JSON.stringify(original);
+      const policy = policyWithBudget(1000); // budget = 3500 chars
+
+      const { result: out, stats } = runPipeline(textResult(text), policy, store, ctx, logger);
+
+      expect(stats.bypassed).toBeNull();
+      expect(stats.stagesApplied).toContain('jsonSummary');
+      expect(stats.stagesApplied).not.toContain('truncate');
+      expect(stats.fullHandle).toBeDefined();
+
+      const outText = firstText(out);
+      expect(outText).toContain(`read_more("${stats.fullHandle}")`);
+      expect(outText).toContain('[Compressed');
+      expect(store.get(stats.fullHandle as string)?.data).toBe(text);
+    });
+
+    it('appends a fallback annotation when stripBase64 alone brings text under budget, so the full original (not just the stripped blob) stays retrievable', () => {
+      const store = new ArtifactStore();
+      const logger = mockLogger();
+      const blob = Buffer.from(randomBytes(4000)).toString('base64');
+      const text = `Result payload:\n${blob}\nEnd of payload.`;
+      const policy = policyWithBudget(100); // budget = 350 chars
+
+      const { result: out, stats } = runPipeline(textResult(text), policy, store, ctx, logger);
+
+      expect(stats.bypassed).toBeNull();
+      expect(stats.stagesApplied).toEqual(['stripBase64']);
+      expect(stats.fullHandle).toBeDefined();
+
+      const outText = firstText(out);
+      // The blob's own (different) handle is still there, for retrieving just the blob...
+      expect(outText).toContain('[binary data removed:');
+      // ...but the fallback must additionally point at fullHandle, which resolves to the
+      // complete original text (prefix + blob + suffix), not just the stripped binary chunk.
+      expect(outText).toContain(`read_more("${stats.fullHandle}")`);
+      expect(store.get(stats.fullHandle as string)?.data).toBe(text);
+    });
   });
 
   it('leaves non-text content blocks untouched and in their original relative position', () => {

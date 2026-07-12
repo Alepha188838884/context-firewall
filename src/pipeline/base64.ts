@@ -9,6 +9,24 @@ const MIN_BASE64_LENGTH = 1024;
 const DATA_URI_PATTERN = /data:([a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})/g;
 const BASE64_BLOCK_PATTERN = /[A-Za-z0-9+/]{1024,}={0,2}/g;
 
+// Real base64 (of non-trivial binary data) mixes case and digits. A bare run of the base64
+// alphabet that lacks that mix - repeated filler ('x'.repeat(N)), long hashes, minified JS
+// identifiers - is more likely to be misclassified than to be an actual embedded blob, so it
+// is left alone. Data URIs (matched separately above) carry their own "this is base64" signal
+// via the `data:...;base64,` prefix and skip this check.
+const LONG_SINGLE_CHAR_RUN_PATTERN = /(.)\1{128,}/;
+
+function looksLikeBase64(block: string): boolean {
+  const hasUpper = /[A-Z]/.test(block);
+  const hasLower = /[a-z]/.test(block);
+  const hasDigit = /[0-9]/.test(block);
+  if (!hasUpper || !hasLower || !hasDigit) {
+    return false;
+  }
+  const hasBase64Special = /[+/=]/.test(block);
+  return hasBase64Special || !LONG_SINGLE_CHAR_RUN_PATTERN.test(block);
+}
+
 function replacement(handle: string, mime: string, length: number): string {
   const sizeKB = Math.round(length / 1024);
   return `[binary data removed: ${mime}, ${sizeKB}KB base64 — retrieve: read_more("${handle}")]`;
@@ -36,6 +54,9 @@ export const stripBase64Stage: PipelineStage = {
 
     // Pass 2: bare base64 blocks not captured as part of a data URI above.
     text = text.replace(BASE64_BLOCK_PATTERN, (match) => {
+      if (!looksLikeBase64(match)) {
+        return match;
+      }
       applied = true;
       const mime = 'application/base64';
       const handle = store.put(match, { server: ctx.server, tool: ctx.tool, mime });

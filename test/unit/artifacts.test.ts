@@ -85,6 +85,29 @@ describe('ArtifactStore', () => {
       expect(store.slice('cf-0-0000')).toBeNull();
     });
 
+    it('regression (A5): treats a length of 0 as the 8000 default, instead of returning an empty page that would loop forever', () => {
+      const store = new ArtifactStore();
+      const data = 'z'.repeat(9000);
+      const handle = store.put(data, meta());
+
+      const page = store.slice(handle, 0, 0);
+      expect(page?.length).toBe(8000);
+      expect(page?.hasMore).toBe(true);
+      expect(page?.nextOffset).toBe(8000);
+      expect(page?.nextOffset).not.toBe(0);
+    });
+
+    it('regression (A5): treats a negative length the same way as 0 (falls back to the 8000 default)', () => {
+      const store = new ArtifactStore();
+      const data = 'z'.repeat(9000);
+      const handle = store.put(data, meta());
+
+      const page = store.slice(handle, 0, -100);
+      expect(page?.length).toBe(8000);
+      expect(page?.hasMore).toBe(true);
+      expect(page?.nextOffset).toBe(8000);
+    });
+
     it('returns null when offset is negative or beyond totalLength', () => {
       const store = new ArtifactStore();
       const handle = store.put('short', meta());

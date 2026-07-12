@@ -135,6 +135,20 @@ export function runPipeline(
     stagesApplied = fallback.applied ? [truncateStage.name] : [];
   }
 
+  // Every stage that writes a fullHandle reference into the text does so from its own
+  // annotation (truncateStage's marker, jsonSummary's array-collapse note). When compression
+  // instead comes entirely from stages that don't embed that reference (htmlToMarkdown,
+  // jsonSummary's object/string trimming, stripBase64 without a subsequent truncate), the
+  // caller is left with no way to retrieve the full original text. Append a fallback pointer
+  // whenever that's the case.
+  if (stagesApplied.length > 0 && !current.text.includes(fullHandle)) {
+    const charsAfter = current.text.length;
+    current = {
+      text: `${current.text}\n\n[Compressed ${charsBefore} → ${charsAfter} chars. Full output: read_more("${fullHandle}")]`,
+      mimeHint: current.mimeHint,
+    };
+  }
+
   return {
     result: { ...result, content: rebuildContent(content, firstTextIndex, current.text) },
     stats: { ...baseStats, charsAfter: current.text.length, stagesApplied, bypassed: null, fullHandle },

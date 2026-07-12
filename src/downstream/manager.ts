@@ -9,6 +9,7 @@ import { ToolRegistry } from './registry.js';
 
 const CONNECT_TIMEOUT_MS = 30_000;
 const LIST_TOOLS_TIMEOUT_MS = 30_000;
+const MAX_LIST_TOOLS_PAGES = 100;
 
 export interface ServerState {
   name: string;
@@ -31,6 +32,38 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
       }
     );
   });
+}
+
+export interface ListToolsClient {
+  listTools(params: { cursor?: string }): Promise<{ tools: Tool[]; nextCursor?: string }>;
+}
+
+/**
+ * Pages through listTools() until the downstream stops returning a nextCursor. Capped at
+ * MAX_LIST_TOOLS_PAGES rounds: a malicious or buggy downstream that echoes back a constant
+ * (non-advancing) cursor would otherwise loop forever.
+ */
+export async function paginateListTools(
+  client: ListToolsClient,
+  logger: Logger,
+  serverName: string
+): Promise<Tool[]> {
+  const tools: Tool[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+  do {
+    const result = await client.listTools(cursor ? { cursor } : {});
+    tools.push(...result.tools);
+    cursor = result.nextCursor;
+    pages++;
+    if (cursor && pages >= MAX_LIST_TOOLS_PAGES) {
+      logger.warn(
+        `downstream "${serverName}" listTools pagination exceeded ${MAX_LIST_TOOLS_PAGES} pages, stopping (possible malformed cursor)`
+      );
+      break;
+    }
+  } while (cursor);
+  return tools;
 }
 
 /**
@@ -72,7 +105,7 @@ export class DownstreamManager {
       );
 
       const tools = await withTimeout(
-        this.listAllTools(client),
+        paginateListTools(client, this.log, name),
         LIST_TOOLS_TIMEOUT_MS,
         `listTools on downstream "${name}" timed out after ${LIST_TOOLS_TIMEOUT_MS / 1000}s`
       );
@@ -117,17 +150,6 @@ export class DownstreamManager {
     }
 
     return transport;
-  }
-
-  private async listAllTools(client: Client): Promise<Tool[]> {
-    const tools: Tool[] = [];
-    let cursor: string | undefined;
-    do {
-      const result = await client.listTools(cursor ? { cursor } : {});
-      tools.push(...result.tools);
-      cursor = result.nextCursor;
-    } while (cursor);
-    return tools;
   }
 
   async callTool(server: string, tool: string, args: Record<string, unknown> | undefined): Promise<CallToolResult> {

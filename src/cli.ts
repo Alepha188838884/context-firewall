@@ -6,7 +6,6 @@ import { createLogger } from './log.js';
 import { DownstreamManager } from './downstream/manager.js';
 import { createGateway } from './server/gateway.js';
 import { ArtifactStore } from './artifacts.js';
-import { TokenCounter } from './tokens.js';
 import { SessionReport } from './report.js';
 import { LIST_TOOL_CATEGORIES, SEARCH_TOOLS, INVOKE_TOOL, READ_MORE } from './server/meta-tools.js';
 
@@ -65,8 +64,7 @@ async function main(): Promise<void> {
 
   const manager = new DownstreamManager(config, log);
   const store = new ArtifactStore();
-  const tokenCounter = new TokenCounter(log);
-  const report = new SessionReport(tokenCounter);
+  const report = new SessionReport();
 
   // Connect the upstream transport first so the MCP client handshake completes promptly -
   // downstream connections can be slow and must not block it.
@@ -95,7 +93,12 @@ async function main(): Promise<void> {
     }
   };
 
+  let closing = false;
   const shutdown = async (signal: string): Promise<void> => {
+    if (closing) {
+      return;
+    }
+    closing = true;
     log.info(`received ${signal}, shutting down`);
     writeReport();
     await manager.close();

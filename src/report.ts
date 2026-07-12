@@ -1,5 +1,4 @@
 import type { CallStats } from './types.js';
-import type { TokenCounter } from './tokens.js';
 
 const CONTEXT_WINDOW_TOKENS = 200_000;
 
@@ -27,13 +26,15 @@ export interface SessionStats {
  * Safety red line: this report must never contain call arguments or output content - only
  * server/tool names and character/token counts (design doc §3.2/§5, mirrored from
  * pipeline/safety.ts). recordCall() only retains the metadata fields of CallStats.
+ *
+ * All counts are chars/3.5 estimates, never exact - there is no code path in this project
+ * that sends tool output content to an external API to get an exact count (that would itself
+ * violate the safety red line above), so the report always labels itself "(estimated)".
  */
 export class SessionReport {
-  private readonly tokenCounter: TokenCounter;
   private readonly stats: SessionStats;
 
-  constructor(tokenCounter: TokenCounter) {
-    this.tokenCounter = tokenCounter;
+  constructor() {
     this.stats = {
       startedAt: Date.now(),
       downstreamToolCount: 0,
@@ -93,7 +94,6 @@ export class SessionReport {
     calls: number;
     compressed: number;
     passthrough: number;
-    estimated: boolean;
   } {
     const defSavings = this.definitionSavingsTokens();
     const outSavings = this.outputSavingsTokens();
@@ -106,37 +106,67 @@ export class SessionReport {
       calls: this.stats.calls.length,
       compressed: this.compressedCallCount(),
       passthrough: this.passthroughCallCount(),
-      estimated: !this.tokenCounter.isExact(),
     };
+  }
+
+  /**
+   * Per-(server, tool) savings, summed across every recorded call to that tool, sorted by
+   * savings descending. Tools that never saved anything (pure passthrough) are excluded.
+   */
+  private topToolsBySavings(limit = 3): { server: string; tool: string; savedTokens: number; calls: number }[] {
+    const agg = new Map<string, { server: string; tool: string; savedTokens: number; calls: number }>();
+    for (const call of this.stats.calls) {
+      const key = `${call.server}/${call.tool}`;
+      const saved = Math.max(0, tokensForChars(call.charsBefore) - tokensForChars(call.charsAfter));
+      const entry = agg.get(key) ?? { server: call.server, tool: call.tool, savedTokens: 0, calls: 0 };
+      entry.savedTokens += saved;
+      entry.calls += 1;
+      agg.set(key, entry);
+    }
+    return [...agg.values()]
+      .filter((entry) => entry.savedTokens > 0)
+      .sort((a, b) => b.savedTokens - a.savedTokens)
+      .slice(0, limit);
   }
 
   /** Unicode box card, suitable for printing to a terminal (stderr). */
   render(): string {
     const s = this.summary();
-    const titleSuffix = s.estimated ? ' (estimated)' : '';
 
     const lines = [
-      `Context Firewall Session Report${titleSuffix}`,
+      'Context Firewall Session Report (estimated)',
       '',
       `Tools exposed: ${this.stats.downstreamToolCount} -> ${this.stats.exposedToolCount}`,
       `Definition savings: ~${s.defSavings.toLocaleString()} tokens`,
       `Calls: ${s.calls} (${s.compressed} compressed, ${s.passthrough} passthrough)`,
       `Output savings: ~${s.outSavings.toLocaleString()} tokens`,
-      `Total savings: ~${s.totalSavings.toLocaleString()} tokens ≈ ${s.pctOfContextWindow.toFixed(1)}% of 200K`,
+      `Total savings: ~${s.totalSavings.toLocaleString()} tokens ~= ${s.pctOfContextWindow.toFixed(1)}% of 200K`,
     ];
 
     const width = Math.max(...lines.map((l) => l.length)) + 2;
     const top = `┌${'─'.repeat(width)}┐`;
     const bottom = `└${'─'.repeat(width)}┘`;
     const body = lines.map((l) => `│ ${l.padEnd(width - 1)}│`).join('\n');
+    const card = `${top}\n${body}\n${bottom}`;
 
-    return `${top}\n${body}\n${bottom}`;
+    const topTools = this.topToolsBySavings();
+    if (topTools.length === 0) {
+      return card;
+    }
+
+    const toolLines = [
+      'Top tools by savings:',
+      ...topTools.map(
+        (t) => `  ${t.server}/${t.tool}  ~${t.savedTokens.toLocaleString()} tokens saved (${t.calls} calls)`
+      ),
+    ];
+
+    return `${card}\n\n${toolLines.join('\n')}`;
   }
 
   /** Same data as render(), formatted as a Markdown table for config.report.markdownPath. */
   renderMarkdown(): string {
     const s = this.summary();
-    const titleSuffix = s.estimated ? ' (estimated)' : '';
 
     const rows: [string, string][] = [
       ['Tools exposed', `${this.stats.downstreamToolCount} → ${this.stats.exposedToolCount}`],
@@ -151,7 +181,17 @@ export class SessionReport {
 
     const header = '| Metric | Value |\n| --- | --- |';
     const body = rows.map(([k, v]) => `| ${k} | ${v} |`).join('\n');
+    let out = `# Context Firewall Session Report (estimated)\n\n${header}\n${body}\n`;
 
-    return `# Context Firewall Session Report${titleSuffix}\n\n${header}\n${body}\n`;
+    const topTools = this.topToolsBySavings();
+    if (topTools.length > 0) {
+      const toolHeader = '| Tool | Tokens saved | Calls |\n| --- | --- | --- |';
+      const toolBody = topTools
+        .map((t) => `| ${t.server}/${t.tool} | ~${t.savedTokens.toLocaleString()} | ${t.calls} |`)
+        .join('\n');
+      out += `\n## Top tools by savings\n\n${toolHeader}\n${toolBody}\n`;
+    }
+
+    return out;
   }
 }
