@@ -1,7 +1,7 @@
 {
   "name": "context-firewall",
   "version": "0.1.0",
-  "description": "",
+  "description": "MCP proxy that collapses 50+ downstream tools into 3 meta-tools and compresses tool outputs (HTML, base64, huge JSON) so AI agents spend far fewer context tokens - works with any MCP client, any model.",
   "type": "module",
   "main": "index.js",
   "bin": {
@@ -16,9 +16,23 @@
     "test:unit": "vitest run test/unit",
     "test:integration": "vitest run test/integration"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "mcp-proxy",
+    "mcp-gateway",
+    "claude",
+    "ai-agent",
+    "token-compression",
+    "context-window"
+  ],
+  "author": "Eric",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/REPLACE_ME/context-firewall.git"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "turndown": "^7.2.4",
