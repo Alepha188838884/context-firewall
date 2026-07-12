@@ -2,17 +2,30 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { DownstreamManager } from '../downstream/manager.js';
 import type { Logger } from '../log.js';
+import type { Config, CallStats } from '../types.js';
+import type { ArtifactStore } from '../artifacts.js';
+import { resolvePolicy } from '../config.js';
+import { runPipeline } from '../pipeline/index.js';
 import { LIST_TOOL_CATEGORIES, SEARCH_TOOLS, INVOKE_TOOL, READ_MORE } from './meta-tools.js';
 
 function textResult(text: string, isError = false): CallToolResult {
   return { content: [{ type: 'text', text }], isError };
 }
 
+export interface GatewayDeps {
+  manager: DownstreamManager;
+  logger: Logger;
+  config: Config;
+  store: ArtifactStore;
+  onCallStats?: (stats: CallStats) => void;
+}
+
 /**
  * Builds the upstream MCP server exposing the 4 meta-tools (list_tool_categories,
  * search_tools, invoke_tool, read_more) backed by the given DownstreamManager.
  */
-export function createGateway(manager: DownstreamManager, logger: Logger): McpServer {
+export function createGateway(deps: GatewayDeps): McpServer {
+  const { manager, logger, config, store, onCallStats } = deps;
   const server = new McpServer({ name: 'context-firewall', version: '0.1.0' });
   const registry = manager.getRegistry();
 
@@ -63,21 +76,44 @@ export function createGateway(manager: DownstreamManager, logger: Logger): McpSe
     { description: INVOKE_TOOL.description, inputSchema: INVOKE_TOOL.inputSchema },
     async ({ server: serverName, tool, args }): Promise<CallToolResult> => {
       logger.debug(`invoke_tool called: server="${serverName}" tool="${tool}"`);
+      let result: CallToolResult;
       try {
-        return await manager.callTool(serverName, tool, args ?? {});
+        result = await manager.callTool(serverName, tool, args ?? {});
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        return textResult(`Error invoking tool "${tool}" on server "${serverName}": ${message}`, true);
+        result = textResult(`Error invoking tool "${tool}" on server "${serverName}": ${message}`, true);
       }
+
+      const policy = resolvePolicy(config, serverName, tool);
+      const { result: finalResult, stats } = runPipeline(
+        result,
+        policy,
+        store,
+        { server: serverName, tool },
+        logger
+      );
+      onCallStats?.(stats);
+      return finalResult;
     }
   );
 
   server.registerTool(
     READ_MORE.name,
     { description: READ_MORE.description, inputSchema: READ_MORE.inputSchema },
-    (): CallToolResult => {
-      logger.debug('read_more called');
-      return textResult('artifact store not yet wired', true);
+    ({ handle, offset, length }): CallToolResult => {
+      logger.debug(`read_more called: handle="${handle}" offset=${offset ?? ''} length=${length ?? ''}`);
+      const slice = store.slice(handle, offset ?? 0, length ?? 8000);
+      if (!slice) {
+        return textResult('artifact not found or expired — re-invoke the tool', true);
+      }
+
+      const end = slice.offset + slice.length;
+      const status = slice.hasMore
+        ? `; next: read_more("${handle}", ${slice.nextOffset})`
+        : '; end of output';
+      const suffix = `\n(showing ${slice.offset}-${end} of ${slice.totalLength} chars${status})`;
+
+      return textResult(slice.text + suffix);
     }
   );
 

@@ -4,6 +4,8 @@ import { loadConfig } from './config.js';
 import { createLogger } from './log.js';
 import { DownstreamManager } from './downstream/manager.js';
 import { createGateway } from './server/gateway.js';
+import { ArtifactStore } from './artifacts.js';
+import type { CallStats } from './types.js';
 
 const log = createLogger('context-firewall');
 
@@ -59,10 +61,19 @@ async function main(): Promise<void> {
   log.info(`config loaded, ${Object.keys(config.downstreams).length} downstreams`);
 
   const manager = new DownstreamManager(config, log);
+  const store = new ArtifactStore();
+  // Collected but not yet consumed - the report module (next task) will render these.
+  const callStats: CallStats[] = [];
 
   // Connect the upstream transport first so the MCP client handshake completes promptly -
   // downstream connections can be slow and must not block it.
-  const gateway = createGateway(manager, log);
+  const gateway = createGateway({
+    manager,
+    logger: log,
+    config,
+    store,
+    onCallStats: (stats) => callStats.push(stats),
+  });
   const transport = new StdioServerTransport();
   await gateway.connect(transport);
   log.info('gateway connected on stdio');
