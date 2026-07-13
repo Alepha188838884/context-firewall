@@ -521,8 +521,15 @@ not-yet-connected).
 
 ## TEST_PLAN.md P2 status
 
-- **P2-1 (soak)** — in progress, running as a separate background process (not part of this
-  session's work; do not disturb).
+- **P2-1 (soak)** — **done, PASS** (2026-07-13, 30 min, everything + filesystem downstreams,
+  ~1 long-output call/10s + read_more + periodic list_tool_categories):
+  - 180 rounds, **0 errors**; clean shutdown, **0 orphaned downstream processes** after exit.
+  - CLI process RSS: 84.5MB (first sample) → settled at 57.7MB — no growth trend, no leak.
+  - CLI fd count: constant 22 for the entire run — no fd leak.
+  - Downstream children total RSS: grew 254MB → ~1.5GB in the first minutes, then **plateaued**
+    (last 10 samples oscillate 1.49–1.59GB) — third-party server V8 heap behavior under repeated
+    large payloads, not unbounded growth; not our process, recorded for awareness only.
+  - Raw data: soak-log.csv in session scratchpad (60 samples @ 30s).
 - **P2-2 (cross-client matrix)** — docs portion done this session (see above). Real-connection
   testing for Cursor/Cline not done — deferred, see below.
 - **P2-3 (pipeline latency benchmark)** — done, see "P2-3 pipeline latency benchmark (2026-07-13)"
