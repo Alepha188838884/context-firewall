@@ -31,9 +31,13 @@ describe('cli shutdown (A4 regression)', () => {
     // one actually running cli.ts - `npx` is an extra process hop that intercepts SIGINT
     // itself and exits with its own signal-terminated code instead of forwarding cleanly.
     const tsxBin = join(projectRoot, 'node_modules/.bin/tsx');
+    // stdin must stay open (a real, never-closed pipe) rather than 'ignore': with 'ignore' the
+    // child's stdin is /dev/null, which EOFs immediately and (since the chaos P1-2 #7 fix)
+    // triggers the stdin-closed shutdown path within milliseconds - long before this test's
+    // signals - which isn't what this test is exercising.
     const child = spawn(tsxBin, [join(projectRoot, 'src/cli.ts'), '--config', configPath], {
       cwd: projectRoot,
-      stdio: ['ignore', 'ignore', 'pipe'],
+      stdio: ['pipe', 'ignore', 'pipe'],
     });
 
     let stderr = '';

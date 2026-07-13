@@ -80,6 +80,38 @@ describe('loadConfig', () => {
     const path = writeTempConfig('{ not valid json');
     expect(() => loadConfig(path)).toThrow(/JSON/);
   });
+
+  it('parses an optional top-level callToolTimeoutMs', () => {
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        callToolTimeoutMs: 5000,
+      })
+    );
+
+    const config = loadConfig(path);
+    expect(config.callToolTimeoutMs).toBe(5000);
+  });
+
+  it('leaves callToolTimeoutMs undefined when omitted', () => {
+    const path = writeTempConfig(
+      JSON.stringify({ downstreams: { filesystem: { command: 'npx' } } })
+    );
+
+    const config = loadConfig(path);
+    expect(config.callToolTimeoutMs).toBeUndefined();
+  });
+
+  it('rejects a non-positive callToolTimeoutMs', () => {
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        callToolTimeoutMs: 0,
+      })
+    );
+
+    expect(() => loadConfig(path)).toThrow();
+  });
 });
 
 describe('resolvePolicy', () => {

@@ -115,6 +115,14 @@ Policy resolution order is `default` < `perServer` < `perTool` (later overrides 
 | `enabled` | boolean | `true` | Print the session report to stderr on shutdown. |
 | `markdownPath` | string | *(none)* | If set, also write the report as a Markdown file at this path. |
 
+### `callToolTimeoutMs`
+
+Top-level (not nested under `compression`). Per-`invoke_tool` timeout in milliseconds passed to the downstream MCP SDK client; a downstream that hangs without responding causes `invoke_tool` to return an `isError` result once this elapses, instead of blocking. Defaults to the SDK's own default (60,000ms) when unset.
+
+```json
+{ "callToolTimeoutMs": 30000 }
+```
+
 ## How it works
 
 The client calls `list_tool_categories()` to see what's connected and what it's roughly capable of, `search_tools(query)` to pull the full input schema for candidate tools, `invoke_tool(server, tool, args)` to actually run one (compressed on the way back), and `read_more(handle, offset, length)` to page through anything that got compressed. Compression, when it runs, always applies in the same order: strip base64 → HTML to Markdown → JSON structure summary → truncate to budget. Security-relevant outputs (errors, permission/warning/confirmation messages) are never silently compressed - they pass straight through, only hard-capped at 50,000 characters to prevent a single runaway error dump from blowing out the caller's context.

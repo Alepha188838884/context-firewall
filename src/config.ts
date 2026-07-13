@@ -42,6 +42,7 @@ const configSchema = z.object({
       markdownPath: z.string().optional(),
     })
     .optional(),
+  callToolTimeoutMs: z.number().positive().optional(),
 });
 
 export const DEFAULT_POLICY: CompressionPolicy = {

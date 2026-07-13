@@ -115,6 +115,14 @@ npx context-firewall --config context-firewall.json
 | `enabled` | boolean | `true` | 进程退出时把 session 报告打印到 stderr。 |
 | `markdownPath` | string | *(无)* | 若设置,则同时把报告写入该路径的 Markdown 文件。 |
 
+### `callToolTimeoutMs`
+
+顶层字段(不嵌套在 `compression` 下)。传给下游 MCP SDK client 的单次 `invoke_tool` 超时(毫秒);下游挂起不响应时,`invoke_tool` 会在超时后返回 `isError` 结果而不是一直阻塞。不设置时使用 SDK 自身默认值(60,000ms)。
+
+```json
+{ "callToolTimeoutMs": 30000 }
+```
+
 ## 工作原理
 
 客户端先调用 `list_tool_categories()` 看看连接了哪些下游、大致有什么能力,再用 `search_tools(query)` 为候选工具拉取完整的输入 schema,然后用 `invoke_tool(server, tool, args)` 实际调用某个工具(返回前会经过压缩),最后可以用 `read_more(handle, offset, length)` 分页取回被压缩掉的部分。压缩一旦触发,顺序永远固定:base64 剥离 → HTML 转 Markdown → JSON 结构摘要 → 截断到预算内。安全相关的输出(错误信息、权限/警告/确认类提示)绝不会被静默压缩——它们会直接透传,仅在超过 50,000 字符时做硬性截断,防止单次异常的报错洪流把调用方的上下文撑爆。

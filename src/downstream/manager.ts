@@ -77,10 +77,12 @@ export class DownstreamManager {
   private readonly registry = new ToolRegistry();
   private readonly clients = new Map<string, Client>();
   private readonly states = new Map<string, ServerState>();
+  private readonly callToolTimeoutMs?: number;
 
   constructor(config: Config, logger: Logger) {
     this.config = config;
     this.log = logger;
+    this.callToolTimeoutMs = config.callToolTimeoutMs;
   }
 
   getRegistry(): ToolRegistry {
@@ -174,7 +176,11 @@ export class DownstreamManager {
     }
 
     try {
-      const result = await client.callTool({ name: tool, arguments: args });
+      const result = await client.callTool(
+        { name: tool, arguments: args },
+        undefined,
+        this.callToolTimeoutMs !== undefined ? { timeout: this.callToolTimeoutMs } : undefined
+      );
       return result as CallToolResult;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

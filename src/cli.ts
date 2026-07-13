@@ -114,6 +114,13 @@ async function main(): Promise<void> {
   transport.onclose = () => {
     void shutdown('transport close');
   };
+  // StdioServerTransport only reacts to 'data'/'error' on stdin - it never calls onclose when
+  // the upstream simply ends the pipe (no more bytes, no signal), which is how some MCP hosts
+  // disconnect. Without this, that disconnect mode never runs shutdown() and every downstream
+  // child process spawned by manager stays behind as an orphan.
+  process.stdin.on('end', () => {
+    void shutdown('stdin closed');
+  });
 
   await manager.connectAll();
 

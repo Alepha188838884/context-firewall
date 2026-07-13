@@ -32,6 +32,12 @@ export interface Config {
     enabled?: boolean;
     markdownPath?: string;
   };
+  /**
+   * Per-request timeout (ms) passed to the downstream MCP SDK client for callTool. Guards
+   * against a hung downstream blocking invoke_tool. Defaults to the SDK's own default
+   * (60_000ms) when unset.
+   */
+  callToolTimeoutMs?: number;
 }
 
 /**

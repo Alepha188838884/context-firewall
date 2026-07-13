@@ -148,6 +148,25 @@ describe('ArtifactStore', () => {
       expect(store.get(h1)).toBeUndefined();
       expect(store.get(h2)).toBeDefined();
     });
+
+    it('P1-2 #6: survives 250 puts at default capacity - oldest handles are gone, newest ones and count stay bounded', () => {
+      const store = new ArtifactStore(); // default maxCount is 200
+      const handles = Array.from({ length: 250 }, (_, i) => store.put(`payload-${i}`, meta()));
+
+      // The earliest 50 were pushed out by FIFO eviction; get() and slice() both fail closed
+      // (undefined / null) rather than throwing or returning stale data.
+      for (const handle of handles.slice(0, 50)) {
+        expect(store.get(handle)).toBeUndefined();
+        expect(store.slice(handle)).toBeNull();
+      }
+
+      // The most recent 200 (the store's capacity) are all still present and correct.
+      for (const handle of handles.slice(50)) {
+        expect(store.get(handle)).toBeDefined();
+      }
+      const last = handles[handles.length - 1];
+      expect(store.get(last)?.data).toBe('payload-249');
+    });
   });
 
   describe('TTL', () => {

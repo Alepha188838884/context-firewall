@@ -6,8 +6,8 @@ doing anything, update it before ending a session.
 ## Project status (v0.1)
 
 Pre-publish, feature-complete for v0.1 scope (design doc §6 MVP + most of v1.0). Build is clean
-(`npm run build`, zero errors), test suite is green: **133 tests passing** (126 unit + 7
-integration) across 13 test files.
+(`npm run build`, zero errors), test suite is green: **146 tests passing** (130 unit + 16
+integration) across 14 test files. Includes a full P1-2 chaos/robustness suite (see below).
 
 Modules implemented:
 
@@ -106,6 +106,62 @@ All of the following were found by an independent review pass; each has a regres
   card lines only (no width-computation library added; `renderMarkdown()`'s table is unaffected
   since it isn't rendered as a fixed-width box). Test: `test/unit/report.test.ts` — asserts the
   card never contains `≈` and does contain `~=`.
+
+## P1-2 chaos / robustness testing (this session)
+
+Ran the 7 scenarios from `TEST_PLAN.md` P1-2 against `test/integration/fixtures/misbehaving-server.mjs`
+(a dependency-free, hand-rolled stdio MCP server whose `tools/call` behavior is picked by argv:
+`echo | hang | huge | malformed`). All 7 became fast, deterministic automated tests in the new
+`test/integration/chaos.test.ts` (no scenario needed a scratchpad-only one-off) plus one unit-level
+addition in `test/unit/artifacts.test.ts`. `callToolTimeoutMs` (top-level config, per-`invoke_tool`
+timeout passed to the downstream SDK client) had already been implemented in a prior session
+(`src/config.ts`, `src/downstream/manager.ts`, `src/types.ts`, README/README.zh, `test/unit/config.test.ts`)
+— this session only added the chaos coverage that exercises it end-to-end.
+
+- **Verified SDK fact**: `Client.callTool()`'s own default request timeout is exactly **60,000ms**
+  (`DEFAULT_REQUEST_TIMEOUT_MSEC` in the SDK's `shared/protocol.js`), confirmed both by reading the
+  source and empirically (a hung downstream with no `callToolTimeoutMs` configured rejects with
+  `McpError -32001 "Request timed out"`, `data: { timeout: 60000 }`).
+- **Verified SDK fact**: `Client.callTool()` validates the downstream's response against
+  `CallToolResultSchema` (zod) before it ever reaches our pipeline code — a downstream returning
+  `content` as something other than an array, or a text block whose `text` isn't a string, fails
+  that validation and rejects, which `DownstreamManager.callTool()`'s existing try/catch turns into
+  an `isError` result. `runPipeline`'s `extractText()` (`src/pipeline/index.ts`) technically assumes
+  `content` is always an array and would throw if it weren't, but that path is unreachable through
+  the real SDK client. Belt-and-suspenders: even if it did throw, the MCP SDK server wraps every
+  tool handler in its own try/catch (`McpServer`'s `CallToolRequestSchema` handler) and converts any
+  thrown error into an `isError` `CallToolResult` — so there is no code path today where a
+  malformed/hostile downstream response can crash the gateway process. No code change made; this is
+  a confirmed-safe finding, not a gap.
+- **B1 (fixed) — orphaned downstream processes when the upstream just closes the pipe.**
+  `StdioServerTransport` (the SDK class `cli.ts` uses for the upstream connection) only reacts to
+  `'data'`/`'error'` on `process.stdin` — it never treats stdin EOF as a close, so `transport.onclose`
+  (already wired to `shutdown()`) does not fire when a host disconnects by simply ending the pipe
+  without also sending SIGTERM/SIGINT. Reproduced directly: spawning the CLI and calling only
+  `child.stdin.end()` (no signal) left both the CLI process and every downstream child it had spawned
+  running indefinitely. Fixed in `src/cli.ts` by adding `process.stdin.on('end', () => shutdown('stdin
+  closed'))`, reusing the existing idempotent `shutdown()` path. Test: `test/integration/chaos.test.ts`
+  → "P1-2 #7" (spawns the CLI with a tagged downstream, calls `client.close()` which ends the pipe,
+  confirms via `pgrep -f <tag>` that the downstream process is gone within 4s).
+  - Side effect: this made `test/integration/shutdown.test.ts`'s SIGINT test spawn the CLI with
+    `stdio: ['ignore', ...]` for stdin, which is `/dev/null` and therefore EOFs immediately — that
+    now triggered the new stdin-closed shutdown path within milliseconds, long before the test's
+    signals, causing `child.on('exit', ...)` (subscribed after a 5s delay) to miss an already-fired
+    `exit` event and hang until the 30s test timeout. Fixed by giving that test a real, never-closed
+    `'pipe'` stdin instead of `'ignore'` (a test-harness fix, not a product behavior change — real MCP
+    hosts always keep stdin open as a live pipe).
+- **Recorded, not fixed (experience-level, caller decides)** — `stripBase64Stage`'s global regex
+  (`src/pipeline/base64.ts`) throws `RangeError: Maximum call stack size exceeded` when run via
+  `.replace()` against a single ~10MB contiguous block of base64-alphabet characters (a known V8
+  regex-engine limitation on huge repeated matches, not specific to this codebase). It's already
+  caught by `runPipeline`'s existing try/catch and falls back to truncate-only, so the gateway never
+  crashes, `invoke_tool` still returns correctly, and the P1-2 #3 test's assertions (`isError` false,
+  <5s, truncation marker present, `read_more` works) all pass on the fallback path. The only real cost
+  is that `stripBase64`/`htmlToMarkdown`/`jsonSummary` are all skipped for that call (truncate-only
+  compression instead of the full pipeline) whenever a single block is large enough to trip this. Not
+  fixed this session — if it's worth addressing, the likely fix is skipping `stripBase64Stage` above
+  some input-size threshold (e.g. >1–2MB) rather than trying to make the regex itself safe at 10MB
+  scale.
 
 ## Report polish (design doc §8 leftover)
 
