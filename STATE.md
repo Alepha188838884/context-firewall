@@ -425,6 +425,69 @@ depending on content" instead of "up to 90%", and added one sentence noting the 
 truncation backstop separately (that one genuinely does bound every output to the configured
 budget regardless of content, ~96–99% observed here, but that's a hard cap, not "compression").
 
+## P2-3 pipeline latency benchmark (2026-07-13)
+
+Ran `TEST_PLAN.md` P2-3 (compression pipeline latency). Pure in-process harness — calls
+`runPipeline()` (`src/pipeline/index.ts`) directly on synthetic-but-realistic content, no
+downstream servers, no network. Content: **html** (real fixture pages — `news.html`,
+`github-readme.html`, `mdn.html`, `wiki.html`, `react.html` — concatenated/cycled to size),
+**json** (the real 100-item `github-issues.json` array, tiled by whole items so it always stays
+valid JSON), **text** (a repeated realistic prose paragraph, no HTML/JSON markers). 3 sizes ×
+3 content types = 9 combinations, 5 runs each (fresh `ArtifactStore` per run), median reported.
+Policy: real default (`maxOutputTokens: 2000`, all stages enabled) — every sample here is far
+above the ~7,000-char bypass threshold, so the full stage pipeline always runs. Script:
+`perf.mts`, kept in the session scratchpad, not committed (same convention as the P0-3/P1-1
+`bench*.mts` harnesses above).
+
+| content | size | chars before | median latency | runs (ms) | stagesApplied | chars after |
+|---|---|---|---|---|---|---|
+| html | 100KB | 102,400 | **3.4 ms** | 10.8, 3.3, 3.4, 3.1, 3.4 | htmlToMarkdown | 1,066 |
+| json | 100KB | 106,173 | **2.7 ms** | 3.5, 2.7, 2.7, 2.6, 2.7 | jsonSummary, truncate | 6,907 |
+| text | 100KB | 102,400 | **1.4 ms** | 1.7, 1.5, 1.4, 1.4, 1.4 | truncate | 6,908 |
+| html | 1MB | 1,048,576 | **63.2 ms** | 90.4, 69.5, 63.2, 59.8, 60.6 | htmlToMarkdown, truncate | 6,908 |
+| json | 1MB | 1,053,732 | **27.6 ms** | 27.7, 27.6, 27.6, 27.5, 27.7 | jsonSummary, truncate | 6,907 |
+| text | 1MB | 1,048,576 | **13.8 ms** | 14.0, 13.7, 13.8, 13.7, 13.8 | truncate | 6,909 |
+| html | 10MB | 10,485,760 | **578.2 ms** | 591.5, 578.2, 579.1, 575.2, 574.0 | htmlToMarkdown, truncate | 6,909 |
+| json | 10MB | 10,486,649 | **32.3 ms** | 32.0, 31.7, 32.3, 33.7, 32.3 | jsonSummary, truncate | 6,907 |
+| text | 10MB | 10,485,760 | **11.4 ms** | 11.3, 11.5, 11.4, 11.4, 11.5 | truncate | 6,910 |
+
+Standalone (10MB text, 5 runs, median): `ArtifactStore.put` **0.35 ms**, `estimateTokens`
+**0.0002 ms** (both O(n) on a plain string — negligible, as expected, not a factor at any size
+tested).
+
+**Threshold judgment** (TEST_PLAN suggested: 1MB input <500ms; 10MB <5s, cross-checked against
+`chaos.test.ts` #3's existing 10MB/<5s pass):
+- **1MB: all 3 content types pass**, worst case html at 63.2ms — **7.9x under** the 500ms bar.
+- **10MB: all 3 content types pass**, worst case html at 578.2ms — **8.6x under** the 5s bar.
+  (`chaos.test.ts` #3 uses a 10MB single-repeated-char blob that isn't HTML/JSON-shaped and so
+  only exercises `truncate`; this benchmark's 10MB html row is a strictly harder case — real
+  markup through `turndown` — and still lands under 600ms, reconfirming the chaos test's <5s
+  headline with the actual slow-path content TEST_PLAN called out.)
+
+**Bottleneck stage**: `htmlToMarkdown` (turndown), exactly as TEST_PLAN flagged ("turndown 对大
+HTML 是已知慢点"). Per-combination stage breakdown (diagnostic-only decomposition, one extra run
+per combo replaying `DEFAULT_STAGES` outside `runPipeline` — not part of the median above) shows
+`htmlToMarkdown` as the dominant cost wherever it runs: ~44ms of the 1MB html row's ~63ms total,
+and ~580ms of the 10MB html row's ~578ms total (the other 3 stages combined are ~0). Scaling from
+1MB→10MB (10x input) is ~13x latency (44ms→580ms) — mildly super-linear, consistent with
+turndown doing DOM-tree work rather than a single linear pass — but still nowhere near the 5s
+budget even projected further (a hypothetical 50MB html page would land around ~3s by this
+curve, still under budget; nothing here needs a size cap for safety at realistic tool-output
+scales). `jsonSummary` and `stripBase64` are both comfortably sub-linear-looking in wall time at
+these sizes (jsonSummary 1.5–14ms even at 10MB; stripBase64's own regex-scan-only cost tops out
+around ~25ms at 1MB and is noise-level, sub-ms, by 10MB in the diagnostic runs — likely a JIT
+warm-up artifact of running it inside a loop of increasingly large inputs rather than a real
+sub-linear property; not chased further since it's off the critical path either way).
+
+**Verdict**: no threshold breaches, no product code change needed. `truncateStage`'s own cost
+(the one stage guaranteed to run on every combination since all samples land the same
+~6,900–6,910-char final size) is consistently the cheapest stage in every breakdown, confirming
+the budget-annotation logic itself isn't a hidden cost. No follow-up action beyond noting, for
+future reference if input sizes ever grow past what real MCP tool outputs produce today, that
+`htmlToMarkdown` is where a size-based pre-cap (e.g. skip turndown and fall straight to
+`truncate` past some multi-MB threshold) would go if one is ever needed — not needed at today's
+observed scale.
+
 ## Follow-ups (not done this session)
 
 - `npm publish` (package.json now has real `description`/`keywords`/`license: MIT`; `repository`
