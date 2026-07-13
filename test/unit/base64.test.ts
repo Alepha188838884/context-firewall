@@ -98,4 +98,18 @@ describe('stripBase64Stage', () => {
     expect(applied).toBe(false);
     expect(out).toBe(text);
   });
+
+  it('regression: a single >2MB contiguous base64-alphabet block is skipped (applied: false) instead of throwing', () => {
+    const store = new ArtifactStore();
+    // A real base64 blob (mixed case + digits) over the 2,000,000-char stage input threshold.
+    // Previously this size tripped a V8 RangeError inside the regex .replace() pass.
+    const blob = realBase64Blob(2_100_000);
+    expect(blob.length).toBeGreaterThan(2_000_000);
+
+    expect(() => stripBase64Stage.apply({ text: blob }, DEFAULT_POLICY, store, ctx)).not.toThrow();
+
+    const { text: out, applied } = stripBase64Stage.apply({ text: blob }, DEFAULT_POLICY, store, ctx);
+    expect(applied).toBe(false);
+    expect(out).toBe(blob);
+  });
 });

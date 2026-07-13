@@ -16,6 +16,14 @@ const BASE64_BLOCK_PATTERN = /[A-Za-z0-9+/]{1024,}={0,2}/g;
 // via the `data:...;base64,` prefix and skip this check.
 const LONG_SINGLE_CHAR_RUN_PATTERN = /(.)\1{128,}/;
 
+// A single contiguous base64-alphabet run in the multi-megabyte range trips a known V8
+// regex-engine limit (RangeError: Maximum call stack size exceeded) inside .replace() - not
+// specific to this codebase, just how the backtracking/match bookkeeping scales at that size.
+// runPipeline already catches that and falls back to truncate-only, so nothing crashes, but
+// skipping this stage above the threshold avoids relying on the exception path at all - the
+// truncate fallback was already going to discard content this large anyway.
+const MAX_STAGE_INPUT_LENGTH = 2_000_000;
+
 function looksLikeBase64(block: string): boolean {
   const hasUpper = /[A-Z]/.test(block);
   const hasLower = /[a-z]/.test(block);
@@ -37,6 +45,10 @@ export const stripBase64Stage: PipelineStage = {
 
   apply(input, policy, store, ctx) {
     if (!policy.stripBase64) {
+      return { text: input.text, applied: false };
+    }
+
+    if (input.text.length > MAX_STAGE_INPUT_LENGTH) {
       return { text: input.text, applied: false };
     }
 

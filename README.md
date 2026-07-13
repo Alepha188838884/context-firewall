@@ -140,6 +140,7 @@ Every token count in this project (truncation budgets, the session report) is es
 - Tool arguments and output content are never written to logs or the session report - only server/tool names and character/token counts.
 - Security-relevant outputs (errors, permission denials, warnings, confirmations) are never silently compressed.
 - Downstream tool descriptions are treated as untrusted input and only ever displayed, never executed.
+- Downstream tool descriptions are passed through verbatim, unsanitized - `search_tools` does not strip or filter prompt-injection text a malicious downstream might put there. The trust boundary is which downstream servers you choose to configure, not this gateway.
 
 ## License
 

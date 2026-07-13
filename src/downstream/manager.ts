@@ -137,6 +137,23 @@ export class DownstreamManager {
 
     const stderrStream = transport.stderr;
     if (stderrStream) {
+      // The downstream's own stderr is untrusted output - a chatty/misbehaving downstream can
+      // echo back the env vars we just handed it (which may include secrets from cfg.env, e.g.
+      // API tokens injected via ${ENV_VAR}). Redact any literal occurrence of a configured env
+      // value before it reaches logger.debug(), since that's the only thing standing between a
+      // leaky downstream and our own stderr (gated behind CF_DEBUG=1, but still logged in full
+      // once that's on).
+      const envEntries = 'env' in cfg && cfg.env ? Object.entries(cfg.env) : [];
+      const redact = (line: string): string => {
+        let out = line;
+        for (const [key, value] of envEntries) {
+          if (value.length > 0) {
+            out = out.split(value).join(`[redacted:${key}]`);
+          }
+        }
+        return out;
+      };
+
       let buffer = '';
       stderrStream.on('data', (chunk: Buffer) => {
         buffer += chunk.toString('utf-8');
@@ -145,7 +162,7 @@ export class DownstreamManager {
           const line = buffer.slice(0, idx);
           buffer = buffer.slice(idx + 1);
           if (line.length > 0) {
-            this.log.debug(`[downstream:${name}] ${line}`);
+            this.log.debug(`[downstream:${name}] ${redact(line)}`);
           }
         }
       });

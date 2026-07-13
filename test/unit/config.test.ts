@@ -76,6 +76,29 @@ describe('loadConfig', () => {
     expect(() => loadConfig(path)).toThrow(/DOES_NOT_EXIST/);
   });
 
+  it('regression (P1-3 #1): a schema validation error does not echo secret env values into the error message', () => {
+    const secret = 'sk-test-1234567890abcdef';
+    // Missing the required `command`/`url` field so the union fails validation - the env value
+    // (which could be a secret) is present in the parsed config but must not leak into the
+    // zod error's `.message` output.
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: {
+          filesystem: { args: ['x'], env: { TOKEN: secret } },
+        },
+      })
+    );
+
+    let message = '';
+    try {
+      loadConfig(path);
+      throw new Error('expected loadConfig to throw');
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).not.toContain(secret);
+  });
+
   it('throws a readable error on invalid JSON', () => {
     const path = writeTempConfig('{ not valid json');
     expect(() => loadConfig(path)).toThrow(/JSON/);
@@ -91,6 +114,26 @@ describe('loadConfig', () => {
 
     const config = loadConfig(path);
     expect(config.callToolTimeoutMs).toBe(5000);
+  });
+
+  it('regression (P1-3 #5): an env value containing a double quote, newline, and backslash expands literally without breaking JSON structure', () => {
+    const tricky = 'a"b\\c\nd';
+    vi.stubEnv('TRICKY_SECRET', tricky);
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: {
+          filesystem: {
+            command: 'npx',
+            env: { TOKEN: '${TRICKY_SECRET}', PLAIN: 'before-${TRICKY_SECRET}-after' },
+          },
+        },
+      })
+    );
+
+    const config = loadConfig(path);
+    const downstream = config.downstreams.filesystem as { env?: Record<string, string> };
+    expect(downstream.env?.TOKEN).toBe(tricky);
+    expect(downstream.env?.PLAIN).toBe(`before-${tricky}-after`);
   });
 
   it('leaves callToolTimeoutMs undefined when omitted', () => {

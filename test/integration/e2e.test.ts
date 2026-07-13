@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -197,6 +197,35 @@ describe('context-firewall e2e', () => {
     const text = firstText(result);
     expect(text).not.toContain('[Output truncated');
   });
+
+  // P1-3 #3 (TEST_PLAN.md): security-relevant passthrough must be byte-for-byte, not just
+  // "not truncated" - a permission-denied error is exactly the kind of output the safety bypass
+  // (src/pipeline/safety.ts) exists for. Skipped when running as root: root bypasses Unix file
+  // permission checks entirely, so chmod 000 wouldn't actually produce a permission error.
+  const isRoot = process.getuid?.() === 0;
+  (isRoot ? it.skip : it)(
+    'invoke_tool passes through a permission-denied read (chmod 000) as an untruncated error (safety bypass)',
+    async () => {
+      const deniedPath = join(dataDir, 'no-permission.json');
+      writeFileSync(deniedPath, '{"secret": "should never be reachable"}');
+      chmodSync(deniedPath, 0o000);
+
+      try {
+        const result = (await client.callTool({
+          name: 'invoke_tool',
+          arguments: { server: 'filesystem', tool: 'read_text_file', args: { path: deniedPath } },
+        })) as CallToolResult;
+
+        expect(result.isError).toBe(true);
+        const text = firstText(result);
+        expect(text).not.toContain('[Output truncated');
+        expect(text.toLowerCase()).toMatch(/permission|denied|eacces/);
+      } finally {
+        // Restore permissions so the temp dir can be cleaned up normally.
+        chmodSync(deniedPath, 0o644);
+      }
+    }
+  );
 
   it('invoke_tool round-trips a short everything/echo message unchanged', async () => {
     const message = 'hello from context-firewall e2e test';
