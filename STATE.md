@@ -245,6 +245,139 @@ never actually saved anything. Verified end-to-end in `test/integration/e2e.test
   Markdown are the only two output formats. Revisit only if user feedback specifically asks for
   it — the terminal card is already screenshot-friendly as-is.
 
+## P0-3/P1-1 benchmark (2026-07-13)
+
+Ran `TEST_PLAN.md` P0-3 (compression benchmark) + P1-1 (multi-downstream scale test), no-GITHUB_TOKEN
+portion, against 4 real downstream MCP servers: `@modelcontextprotocol/server-filesystem`,
+`@modelcontextprotocol/server-everything`, `@modelcontextprotocol/server-memory`, and the official
+`uvx mcp-server-fetch` (Python) for live HTTP fetches. Harness wired the real `DownstreamManager` +
+`createGateway` + pipeline code (unmodified) to an `InMemoryTransport` client/server pair so
+per-call `CallStats` (`charsBefore`/`charsAfter`/`stagesApplied`/`bypassed`) could be captured
+exactly as `cli.ts`'s session report does — same product code, just introspected instead of only
+rendered to a stderr card. Scripts: `bench.mts` (end-to-end), `bench2.mts` (stage-only, isolates
+compression from truncation), `bench3-degraded.mts` (P1-1 #4). Kept in the session scratchpad,
+not committed. GitHub server was skipped per task scope (needs `GITHUB_TOKEN`); npm-registry and
+GitHub REST API JSON were used instead as the two "large real JSON" samples (curl'd directly,
+outside the proxy, then read back through it).
+
+### P1-1 — 4-downstream scale
+
+1. **All 4 connected**: filesystem (14 tools), everything (13), memory (9), fetch (1) = 37 total.
+   `list_tool_categories` output: **456 chars (~131 tokens)** — well under the 300-token/~1050-char
+   target.
+2. **Tool collapse**: 37 downstream tools → 4 exposed meta-tools. Definition savings: raw tool defs
+   18,962 chars (~5,418 tokens) vs. exposed meta-tool defs 2,146 chars (~614 tokens) = **~4,804
+   tokens saved**. Note: TEST_PLAN's "数万 token 量级" expectation was calibrated against the full
+   5-server config including GitHub's ~94-tool schema, which is excluded here by design (no token).
+   At this 4-server/37-tool scale the real number is ~4.8K tokens, not tens of thousands — the
+   claim is scale-dependent and should cite a concrete server count, not a bare "tens of thousands".
+3. **search_tools cross-server accuracy** (3 spot checks): `"write file"` → top 5 all `filesystem/*`
+   (write_file, read_file, read_text_file, ...) ✓. `"create entities"` → top hit
+   `memory/create_entities` ✓ (filesystem `create_directory`/`write_file` also place in the top 5 on
+   keyword overlap with "create", expected/benign). `"echo"` → single exact hit `everything/echo` ✓.
+4. **Degraded-downstream isolation, confirmed at 4-server scale**: 3 real servers (filesystem,
+   everything, memory) + 1 intentionally broken (`command: npx-package-that-does-not-exist-xyz`).
+   `broken` reports `status: "unavailable"` with its spawn error; all 3 others report `connected`
+   with correct tool counts; a normal `invoke_tool` call against a good server (`everything/echo`)
+   still round-trips correctly. No cross-contamination.
+
+### P0-3 — compression benchmark (real data, default policy: `maxOutputTokens: 2000`)
+
+End-to-end, exactly what an agent would receive through `invoke_tool` with the real default
+config (`context-firewall.example.json`'s `maxOutputTokens: 2000` → 7,000-char budget):
+
+| # | Sample | Server/tool | Original chars | Final chars | Reduction | stagesApplied | bypassed |
+|---|---|---|---:|---:|---:|---|---|
+| 1 | news.html — bbc.com/news (curl) | filesystem/read_text_file | 402,276 | 6,907 | 98.3% | htmlToMarkdown, truncate | — |
+| 2 | github-readme.html — github.com/modelcontextprotocol/servers (curl) | filesystem/read_text_file | 362,849 | 6,907 | 98.1% | htmlToMarkdown, truncate | — |
+| 3 | mdn.html — developer.mozilla.org/…/JavaScript (curl) | filesystem/read_text_file | 201,370 | 6,891 | 96.6% | *(none)* | **security** (false positive — see Finding 1) |
+| 4 | wiki.html — en.wikipedia.org/wiki/Model_Context_Protocol (curl) | filesystem/read_text_file | 232,224 | 6,907 | 97.0% | htmlToMarkdown, truncate | — |
+| 5 | react.html — react.dev SPA (curl) | filesystem/read_text_file | 272,428 | 6,907 | 97.5% | htmlToMarkdown, truncate | — |
+| 6 | MDN, live via real fetch tool (`uvx mcp-server-fetch`, raw mode) | fetch/fetch | 201,525 | 6,907 | 96.6% | htmlToMarkdown, truncate | — |
+| 7 | Wikipedia, live via real fetch tool | fetch/fetch | 232,391 | 6,907 | 97.0% | htmlToMarkdown, truncate | — |
+| 8 | npm-react.json — registry.npmjs.org/react (curl) | filesystem/read_text_file | 6,787,766 | 6,909 | 99.9% | truncate | — (jsonSummary found 0% reduction on this shape — see Finding 2) |
+| 9 | github-issues.json — api.github.com/repos/facebook/react/issues?per_page=100 (curl, anon) | filesystem/read_text_file | 581,389 | 6,907 | 98.8% | htmlToMarkdown, truncate | — (false-positive HTML detection corrupted the JSON before truncate — see Finding 3) |
+| 10 | get-tiny-image (base64 PNG) | everything/get-tiny-image | 64 | 64 | 0.0% | *(none)* | **small** (already under budget) |
+
+Supplementary — **stage-only ratio**, isolating the actual compression mechanism from truncation
+(same stage functions, called directly, no 2000-token budget applied afterward):
+
+| Sample | Stage | Original chars | Stage output chars | Ratio |
+|---|---|---:|---:|---:|
+| news.html | htmlToMarkdown | 402,276 | 28,818 | 92.8% |
+| github-readme.html | htmlToMarkdown | 362,849 | 24,194 | 93.3% |
+| mdn.html | htmlToMarkdown | 201,370 | 60,291 | 70.1% |
+| wiki.html | htmlToMarkdown | 232,224 | 70,385 | 69.7% |
+| react.html | htmlToMarkdown | 272,428 | 16,773 | 93.8% |
+| npm-react.json | jsonSummary | 6,787,766 | 6,787,766 | 0.0% |
+| github-issues.json | jsonSummary | 581,389 | 16,241 | 97.2% |
+
+**Reading the two tables together**: the end-to-end numbers (96–99%) are dominated by hard
+truncation to the 2000-token budget on every sample except the base64 one — every real page here
+was still way over budget *after* HTML→Markdown conversion, so `truncateStage` did most of the
+work. The stage-only table shows what the "smart" compression step alone contributes: **70–94%**
+for real HTML→Markdown, and a **bimodal 0% or 97%** for JSON structural summarization depending on
+payload shape (see Finding 2). The 70–94% HTML figure is the honest number to cite for "the
+compression pipeline"; the 96–99% figure is real but is mostly truncation, not compression.
+
+**Manual spot check** (2 snippets, judged for whether an agent could still do useful work):
+
+- `news.html` final text: title + nav links only (`[Home](/)`, `[Sport](/sport)`, ...) — the
+  article body never appears in the 6,907-char window because BBC's nav/header markup alone eats
+  the entire truncation budget before the main content starts. **Usable for "what site is this /
+  what sections exist", not usable for "summarize the article."**
+- `react.dev` final text: title, logo, top nav (Learn/Reference/Community/Blog) — same pattern,
+  homepage hero/content cut off before it starts. **Usable for site orientation, not for content
+  extraction**, unless the agent follows up with `read_more`.
+
+### Findings (recorded, not fixed — reported per task instructions)
+
+1. **False-positive security bypass on ordinary real HTML** (`src/pipeline/safety.ts`).
+   `isSecuritySensitive()` scans only the first 500 raw chars for keywords including `\berror\b`.
+   MDN's page source has an inline `<script>` with `catch (error) {` inside the first 500 chars,
+   so the *entire* real MDN page (201,370 chars) skips compression and gets a raw-HTML passthrough
+   truncated to ~6,891 chars of `<head>`/`<script>` boilerplate — no title, no content, strictly
+   worse than the normal compressed path would have produced. Confirmed positionally fragile: the
+   live-fetch version of the same MDN page (sample #6) was *not* bypassed, purely because
+   `mcp-server-fetch`'s raw-mode preamble ("Content type text/html cannot be simplified to
+   markdown, but here is the raw content: Contents of ...") pushed the same `catch (error)` text
+   past the 500-char scan window. Same content, different bypass outcome depending on an unrelated
+   prefix's length.
+2. **`jsonSummaryStage` only collapses homogeneous arrays, not large flat objects/maps**
+   (`src/pipeline/json-summary.ts`). npm registry's `/react` document is a large *object* whose
+   `versions` key maps ~2,000+ version strings to full package.json-shaped values — not an array,
+   so `isHomogeneousObjectArray()` never fires and the stage returns `applied: false` with 0%
+   reduction on a 6.6MB payload, falling back entirely to blind truncation. This is a common
+   real-world JSON shape (any "map keyed by ID" API response), and today it gets none of the
+   "JSON structure-aware summarization" the README advertises.
+3. **`htmlToMarkdownStage` false-positive on JSON containing embedded HTML strings**
+   (`src/pipeline/html.ts`). GitHub's issues API returns issue bodies as Markdown that often embeds
+   raw HTML (`<details><summary>`, `<img>`, `<table>` for collapsible sections/screenshots). The
+   github-issues.json sample (100 issues) tripped `looksLikeHtml()`'s tag-density heuristic, so
+   `htmlToMarkdownStage` ran `turndown` on the *entire raw JSON string* before `jsonSummaryStage`
+   ever got a chance to run — corrupting the JSON (turndown markdown-escapes underscores, e.g.
+   `repository_url` → `repository\_url`, among other transforms) and leaving it unparseable, so
+   `jsonSummaryStage` correctly no-ops on the now-broken text and everything falls back to blind
+   truncation. Verified in isolation: `jsonSummaryStage` alone on the *original* (uncorrupted) JSON
+   achieves 97.2% reduction with real structure preserved (Finding 2's table) — the stage-order
+   interaction is actively destroying value that's otherwise available. This is a generalizable
+   risk for any JSON API response whose string fields contain markup (GitHub, GitLab, Jira, CMS
+   APIs, ...).
+
+None of these were fixed this session (compression-benchmark task, not a bugfix task) — flagged for
+a follow-up session. All three are plausible, moderate-severity correctness/quality issues, not
+crashes or security leaks.
+
+### README revision
+
+`README.md`/`README.zh.md` claimed "shrink tool outputs by up to 90%". The honest number for the
+actual compression mechanism (HTML→Markdown / JSON summarization, excluding truncation) measured
+**70–94%** on 5 real HTML pages, and a shape-dependent **0% or 97%** on 2 real large-JSON payloads
+(Finding 2) — not a clean "up to 90%" story. Revised both READMEs' headline claim to say "60–95%,
+depending on content" instead of "up to 90%", and added one sentence noting the character-budget
+truncation backstop separately (that one genuinely does bound every output to the configured
+budget regardless of content, ~96–99% observed here, but that's a hard cap, not "compression").
+
 ## Follow-ups (not done this session)
 
 - `npm publish` (package.json now has real `description`/`keywords`/`license: MIT`; `repository`

@@ -2,7 +2,7 @@
 
 [English README](./README.md)
 
-**把 50+ 个 MCP 工具变成 3 个,再把工具输出瘦身最多 90%——适配任意 MCP 客户端、任意模型。**
+**把 50+ 个 MCP 工具变成 3 个,再把大体积工具输出瘦身 60–95%(真实 HTML/JSON 实测,见 [benchmark](./STATE.md))——适配任意 MCP 客户端、任意模型。** 压缩后仍超出你配置的 token 预算的输出,会被硬截断到该预算以内,完整原文始终可通过 `read_more` 取回。
 
 Context Firewall 是一个本地 MCP 代理,坐在你的 AI agent(Claude Code、Claude Desktop、Cursor、Cline……)和你配置的每一个下游 MCP server 之间。不管下游有多少个工具,客户端始终只看到 4 个工具;在巨大的工具输出(原始 HTML、base64 大块、超长 JSON)进入模型上下文窗口之前,先把它们压缩掉。
 

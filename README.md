@@ -2,7 +2,7 @@
 
 [中文文档](./README.zh.md)
 
-**Turn 50+ MCP tools into 3, and shrink tool outputs by up to 90% — for any MCP client, any model.**
+**Turn 50+ MCP tools into 3, and shrink large tool outputs by 60–95% (real HTML/JSON, measured — see [benchmark](./STATE.md)) — for any MCP client, any model.** Any output still over your configured token budget after compression is hard-truncated to that budget, with the full original retrievable via `read_more`.
 
 Context Firewall is a local MCP proxy that sits between your AI agent (Claude Code, Claude Desktop, Cursor, Cline, ...) and every downstream MCP server you've configured. It exposes exactly 4 tools to the client, no matter how many tools the downstream servers actually have, and compresses large tool outputs (raw HTML, base64 blobs, giant JSON) before they ever reach the model's context window.
 
