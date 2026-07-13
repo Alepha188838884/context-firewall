@@ -67,4 +67,34 @@ describe('isSecuritySensitive', () => {
     const text = `${padding} error`;
     expect(isSecuritySensitive({}, text)).toBe(true);
   });
+
+  // Regression (Finding 1, 2026-07-13 benchmark): a real HTML page with an inline <script>
+  // containing `catch (error) {` within the first 500 chars used to bypass compression for the
+  // entire page. HTML documents should be exempt from the keyword scan (but not from the
+  // isError structured signal).
+  describe('regression: HTML documents are exempt from the keyword scan', () => {
+    function htmlPageWithScriptError(): string {
+      const nav = Array.from(
+        { length: 12 },
+        (_, i) => `<div class="nav"><a href="/p${i}">Page ${i}</a></div>`
+      ).join('');
+      return `<!DOCTYPE html>\n<html><head><title>Test</title>\n<script>\ntry { doThing(); } catch (error) { console.log(error); }\n</script>\n</head>\n<body>${nav}<p>Real content down here.</p></body></html>`;
+    }
+
+    it('does not bypass a real HTML page whose inline <script> contains "catch (error)"', () => {
+      const html = htmlPageWithScriptError();
+      // sanity: the keyword really is within the scanned prefix
+      expect(html.slice(0, 500)).toMatch(/error/);
+      expect(isSecuritySensitive({}, html)).toBe(false);
+    });
+
+    it('still bypasses when isError is true, even for an HTML document', () => {
+      const html = htmlPageWithScriptError();
+      expect(isSecuritySensitive({ isError: true }, html)).toBe(true);
+    });
+
+    it('plain-text (non-HTML) error messages still bypass as before', () => {
+      expect(isSecuritySensitive({}, 'Error: permission denied')).toBe(true);
+    });
+  });
 });

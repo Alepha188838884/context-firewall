@@ -7,6 +7,8 @@ const STRING_KEEP_LENGTH = 200;
 const MAX_DEPTH = 6;
 const ARRAY_COLLAPSE_THRESHOLD = 10;
 const ARRAY_KEEP_COUNT = 5;
+const OBJECT_COLLAPSE_THRESHOLD = 20;
+const OBJECT_KEEP_COUNT = 5;
 const SHAPE_SIMILARITY_THRESHOLD = 0.7;
 const SHAPE_SAMPLE_SIZE = 3;
 
@@ -28,17 +30,12 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return intersectionSize / union.size;
 }
 
-// Same-shape check is sampled (first 3 elements) rather than exhaustive - good enough to
-// tell "array of records" from "mixed bag" without scanning huge arrays element by element.
-function isHomogeneousObjectArray(arr: Json[]): boolean {
-  if (arr.length <= ARRAY_COLLAPSE_THRESHOLD) {
-    return false;
-  }
-
-  const sampleCount = Math.min(SHAPE_SAMPLE_SIZE, arr.length);
+// Shared by the array-of-records and large-object-of-records homogeneity checks below: sample
+// values, and confirm they're plain objects with >=70% Jaccard key overlap with the first
+// sample. Good enough to tell "same shape" from "mixed bag" without an exhaustive scan.
+function sampledShapesMatch(sample: Json[]): boolean {
   const keySets: Set<string>[] = [];
-  for (let i = 0; i < sampleCount; i++) {
-    const el = arr[i] as Json;
+  for (const el of sample) {
     if (!isPlainObject(el)) {
       return false;
     }
@@ -51,6 +48,28 @@ function isHomogeneousObjectArray(arr: Json[]): boolean {
     }
   }
   return true;
+}
+
+// Same-shape check is sampled (first 3 elements) rather than exhaustive - good enough to
+// tell "array of records" from "mixed bag" without scanning huge arrays element by element.
+function isHomogeneousObjectArray(arr: Json[]): boolean {
+  if (arr.length <= ARRAY_COLLAPSE_THRESHOLD) {
+    return false;
+  }
+  return sampledShapesMatch(arr.slice(0, Math.min(SHAPE_SAMPLE_SIZE, arr.length)));
+}
+
+// Same idea as isHomogeneousObjectArray, but for a large *object* whose values are all
+// same-shaped records (e.g. an API response keyed by ID/version - "versions": { "1.0.0": {...},
+// "1.0.1": {...}, ... } - a common real-world shape that a homogeneous-array check alone never
+// catches, since the collection here is the object's values, not array elements).
+function isHomogeneousValueMap(obj: { [key: string]: Json }): boolean {
+  const keys = Object.keys(obj);
+  if (keys.length <= OBJECT_COLLAPSE_THRESHOLD) {
+    return false;
+  }
+  const sampleKeys = keys.slice(0, Math.min(SHAPE_SAMPLE_SIZE, keys.length));
+  return sampledShapesMatch(sampleKeys.map((k) => obj[k] as Json));
 }
 
 function summarize(value: Json, depth: number, fullHandle: string): Json {
@@ -79,6 +98,16 @@ function summarize(value: Json, depth: number, fullHandle: string): Json {
   if (isPlainObject(value)) {
     if (depth > MAX_DEPTH) {
       return '…[nested object, depth>6]';
+    }
+    if (isHomogeneousValueMap(value)) {
+      const keys = Object.keys(value);
+      const result: { [key: string]: Json } = {};
+      for (const key of keys.slice(0, OBJECT_KEEP_COUNT)) {
+        result[key] = summarize(value[key] as Json, depth + 1, fullHandle);
+      }
+      const remaining = keys.length - OBJECT_KEEP_COUNT;
+      result['…'] = `(${remaining} more keys with same value shape; full data: read_more("${fullHandle}"))`;
+      return result;
     }
     const result: { [key: string]: Json } = {};
     for (const [key, v] of Object.entries(value)) {

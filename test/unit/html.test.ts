@@ -72,4 +72,35 @@ describe('htmlToMarkdownStage', () => {
     expect(applied).toBe(false);
     expect(out).toBe(html);
   });
+
+  // Regression (Finding 3, 2026-07-13 benchmark): JSON API responses (e.g. GitHub issues) often
+  // embed raw HTML fragments inside string fields, which used to trip the tag-density heuristic
+  // and get corrupted by turndown before jsonSummaryStage ever ran. Valid JSON must take
+  // precedence, regardless of how much HTML markup its string fields contain.
+  describe('regression: valid JSON with embedded HTML strings is left for jsonSummary', () => {
+    it('does not touch legal JSON whose string fields contain lots of embedded HTML markup', () => {
+      const store = new ArtifactStore();
+      const issues = Array.from({ length: 15 }, (_, i) => ({
+        id: i,
+        title: `Issue ${i}`,
+        body: `<details><summary>Details</summary><p>Some text</p><img src="https://example.com/${i}.png"/><table><tr><td>a</td></tr></table></details>`,
+      }));
+      const text = JSON.stringify({ issues });
+
+      const { text: out, applied } = htmlToMarkdownStage.apply({ text }, DEFAULT_POLICY, store, ctx);
+
+      expect(applied).toBe(false);
+      expect(out).toBe(text);
+      expect(() => JSON.parse(out)).not.toThrow();
+    });
+
+    it('still converts a real HTML page (not JSON) as before', () => {
+      const store = new ArtifactStore();
+      const html = buildHtmlFixture();
+
+      const { applied } = htmlToMarkdownStage.apply({ text: html }, DEFAULT_POLICY, store, ctx);
+
+      expect(applied).toBe(true);
+    });
+  });
 });
