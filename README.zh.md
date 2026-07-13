@@ -37,9 +37,11 @@ npx context-firewall --config context-firewall.json
 }
 ```
 
-### Claude Code / Claude Desktop
+## 客户端配置
 
-把你现有的 `mcpServers` 配置指向 Context Firewall,让它作为**唯一**的 MCP server,由它接管所有下游连接:
+**把 Context Firewall 设为你唯一的 MCP server**——把你目前直接挂的所有下游 server(filesystem、github、everything……)统统搬进 `context-firewall.json` 的 `downstreams` 块。这样你的 agent 看到的就是 4 个工具,而不是所有下游 server 工具数量的总和;如果只是把 Context Firewall *额外*加在现有 server 旁边,是拿不到工具收敛和压缩这两项收益的。
+
+下面每个客户端用的都是同一段 server 配置:
 
 ```json
 {
@@ -52,7 +54,38 @@ npx context-firewall --config context-firewall.json
 }
 ```
 
-这样你的 agent 看到的就是 4 个工具,而不是所有下游 server 工具数量的总和。
+在 `context-firewall` npm 包正式发布前,把上面的 `command`/`args` 换成本地路径:`"command": "node", "args": ["/path/to/dist/cli.js", "--config", "/absolute/path/to/context-firewall.json"]`。
+
+### Claude Code
+
+项目级 `.mcp.json`(放在仓库根目录,格式同上),或者用 CLI:
+
+```bash
+claude mcp add --transport stdio context-firewall -- npx -y context-firewall --config /absolute/path/to/context-firewall.json
+```
+
+### Claude Desktop
+
+`claude_desktop_config.json`(macOS:`~/Library/Application Support/Claude/claude_desktop_config.json`;Windows:`%APPDATA%\Claude\claude_desktop_config.json`)——`mcpServers` 块同上。
+
+### Cursor
+
+`.cursor/mcp.json`(项目级)或 `~/.cursor/mcp.json`(全局)——`mcpServers` 块同上。
+
+### Cline
+
+`cline_mcp_settings.json`(VS Code 扩展存储目录;macOS:`~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`)——`mcpServers` 块同上。
+
+### 兼容性状态
+
+| 客户端 | 状态 |
+| --- | --- |
+| Claude Code | 已测试* |
+| Claude Desktop | 已测试* |
+| Cursor | 配置格式已核实文档,欢迎社区实测反馈 |
+| Cline | 配置格式已核实文档,欢迎社区实测反馈 |
+
+\* 通过 MCP 协议集成测试验证(163 个自动化测试,含针对真实下游 server 的完整 stdio 协议往返)。真实客户端验收测试(`TEST_PLAN.md` P0-2)计划在 npm 发布前完成——测试通过后本条措辞会升级。
 
 ## 配置
 

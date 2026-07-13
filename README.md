@@ -37,9 +37,11 @@ Minimal `context-firewall.json` (the `downstreams` block mirrors the `mcpServers
 }
 ```
 
-### Claude Code / Claude Desktop
+## Client setup
 
-Point your existing `mcpServers` config at Context Firewall as the *only* MCP server, and let it own every downstream connection:
+**Set Context Firewall as your only MCP server** — move every downstream server you currently configure directly (filesystem, github, everything, ...) into `context-firewall.json`'s `downstreams` block instead. Your agent then sees 4 tools instead of the sum of every downstream server's tool count; pointing the client at Context Firewall *alongside* your existing servers doesn't give you the tool-collapse or compression benefit.
+
+Each client below takes the same server entry:
 
 ```json
 {
@@ -52,7 +54,38 @@ Point your existing `mcpServers` config at Context Firewall as the *only* MCP se
 }
 ```
 
-Your agent now sees 4 tools instead of the sum of every downstream server's tool count.
+Before the `context-firewall` npm package is published, replace the `command`/`args` pair with a local path: `"command": "node", "args": ["/path/to/dist/cli.js", "--config", "/absolute/path/to/context-firewall.json"]`.
+
+### Claude Code
+
+Project-scoped `.mcp.json` in your repo root (shown above), or via the CLI:
+
+```bash
+claude mcp add --transport stdio context-firewall -- npx -y context-firewall --config /absolute/path/to/context-firewall.json
+```
+
+### Claude Desktop
+
+`claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`; Windows: `%APPDATA%\Claude\claude_desktop_config.json`) — same `mcpServers` block as above.
+
+### Cursor
+
+`.cursor/mcp.json` (project-scoped) or `~/.cursor/mcp.json` (global) — same `mcpServers` block as above.
+
+### Cline
+
+`cline_mcp_settings.json` (VS Code extension storage; macOS: `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`) — same `mcpServers` block as above.
+
+### Compatibility status
+
+| Client | Status |
+| --- | --- |
+| Claude Code | tested* |
+| Claude Desktop | tested* |
+| Cursor | config format documented, community testing welcome |
+| Cline | config format documented, community testing welcome |
+
+\* Verified via MCP protocol integration tests (163 automated tests, including full stdio protocol round-trips against real downstream servers). Real-client acceptance testing (`TEST_PLAN.md` P0-2) is scheduled before the npm publish; this note will be upgraded once that pass completes.
 
 ## Configuration
 

@@ -488,6 +488,71 @@ future reference if input sizes ever grow past what real MCP tool outputs produc
 `truncate` past some multi-MB threshold) would go if one is ever needed — not needed at today's
 observed scale.
 
+## P2-2 client compatibility matrix — docs portion (2026-07-13)
+
+Did the documentation half of `TEST_PLAN.md` P2-2 (real-connection testing for Cursor/Cline is
+deferred — see "Deferred tests" below). Verified each client's current MCP config format via
+web search/fetch against its own docs (not from memory) before writing anything:
+
+- **Claude Code** — `code.claude.com/docs/en/mcp`: project-scoped `.mcp.json` uses a top-level
+  `mcpServers` object (`command`/`args`/`env`), same shape already used elsewhere in this README;
+  also documented the `claude mcp add --transport stdio <name> -- <command> [args...]` CLI form
+  (note the `--` separator requirement).
+- **Claude Desktop** — confirmed `claude_desktop_config.json` uses the same `mcpServers` block
+  shape, at the standard macOS/Windows paths.
+- **Cursor** — `cursor.com/docs/mcp` (direct fetch, not just search snippets): `.cursor/mcp.json`
+  / `~/.cursor/mcp.json` use a top-level `mcpServers` object, same shape as Claude Desktop (one
+  search result suggested a flat object without the `mcpServers` wrapper — the direct doc fetch
+  contradicts that, so the doc fetch was trusted over the search snippet).
+- **Cline** — `docs.cline.bot/mcp/mcp-overview` (direct fetch): `cline_mcp_settings.json` uses a
+  top-level `mcpServers` object plus Cline-specific `disabled`/`autoApprove` fields (not required
+  for a minimal entry), at the VS Code extension's globalStorage path.
+
+Added a "Client setup" section to both `README.md` and `README.zh.md` (Quickstart-adjacent, before
+Configuration) with one config snippet per client (all four use the identical `npx -y
+context-firewall --config <path>` entry, since the `mcpServers` shape is identical across all
+four), a note to swap in a local `node /path/to/dist/cli.js` path before the npm package is
+published, a callout that Context Firewall should be the client's *only* MCP server (downstreams
+moved into its own config) to get the tool-collapse/compression benefit, and a compatibility
+table: Claude Code/Claude Desktop = "tested*" (footnoted: verified via MCP protocol integration
+tests, not yet real-client acceptance-tested — see P0-2 below; upgrade wording after that test
+runs), Cursor/Cline = "config format documented, community testing welcome" (honestly marked
+not-yet-connected).
+
+## TEST_PLAN.md P2 status
+
+- **P2-1 (soak)** — in progress, running as a separate background process (not part of this
+  session's work; do not disturb).
+- **P2-2 (cross-client matrix)** — docs portion done this session (see above). Real-connection
+  testing for Cursor/Cline not done — deferred, see below.
+- **P2-3 (pipeline latency benchmark)** — done, see "P2-3 pipeline latency benchmark (2026-07-13)"
+  above.
+
+## Deferred tests (pending)
+
+- **P0-2 — Claude Code real-client acceptance test** (`TEST_PLAN.md` P0-2). Needs user
+  participation (real interactive session, not automatable); **must complete before `npm
+  publish`** — this is the test that validates the core UX assumption (agent self-navigates
+  `list_tool_categories` → `search_tools` → `invoke_tool` → `read_more` without being told the
+  tool names). Steps: (1) configure `.mcp.json` with context-firewall as the only MCP server,
+  downstreams = filesystem + everything + fetch, restart session; (2) `/mcp` confirms exactly 4
+  tools visible; (3) give the agent natural-language tasks that don't name any tool (read/summarize
+  a file, fetch/extract a real webpage, deliberately request a nonexistent tool/server) and observe
+  whether it self-navigates the two-step search→invoke flow and recovers from the bad-tool error;
+  (4) exit and confirm the stderr savings report card renders correctly; repeat steps 1-2 against
+  Claude Desktop (config-format + 4-tools-visible only, not the full task list).
+- **P1-1 — GitHub server portion** (`TEST_PLAN.md` P1-1). The no-token portion (4 downstream
+  servers, 37 tools) is done — see "P0-3/P1-1 benchmark" above. Still needed: a real run with
+  `GITHUB_TOKEN` supplied by the user, adding `@modelcontextprotocol/server-github`'s ~94 tools to
+  the mix — this is the benchmark case the "tens of thousands of tokens saved" definition-savings
+  claim was originally calibrated against, and the current README/STATE numbers (~4.8K tokens at
+  37 tools) are honestly scale-dependent, not the headline figure.
+- **P2-2 — Cursor/Cline real-connection testing** (`TEST_PLAN.md` P2-2). Only the documentation
+  half is done (config format verified against each client's own docs — see above). Neither client
+  has actually been connected to a running Context Firewall instance and driven through a task;
+  the README compatibility table marks this honestly ("community testing welcome") rather than
+  claiming untested behavior works.
+
 ## Follow-ups (not done this session)
 
 - `npm publish` (package.json now has real `description`/`keywords`/`license: MIT`; `repository`
