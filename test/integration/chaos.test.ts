@@ -308,7 +308,7 @@ describe('P1-2 #6: artifact store eviction under load (30-call spot check)', () 
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     client = new Client({ name: 'chaos-artifact-test-client', version: '0.0.1' });
-    await Promise.all([gateway.connect(serverTransport), client.connect(clientTransport)]);
+    await Promise.all([gateway.server.connect(serverTransport), client.connect(clientTransport)]);
   }, 15_000);
 
   afterAll(async () => {

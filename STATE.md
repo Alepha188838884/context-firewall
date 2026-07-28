@@ -537,17 +537,53 @@ not-yet-connected).
 
 ## Deferred tests (pending)
 
-- **P0-2 — Claude Code real-client acceptance test** (`TEST_PLAN.md` P0-2). Needs user
-  participation (real interactive session, not automatable); **must complete before `npm
-  publish`** — this is the test that validates the core UX assumption (agent self-navigates
-  `list_tool_categories` → `search_tools` → `invoke_tool` → `read_more` without being told the
-  tool names). Steps: (1) configure `.mcp.json` with context-firewall as the only MCP server,
-  downstreams = filesystem + everything + fetch, restart session; (2) `/mcp` confirms exactly 4
-  tools visible; (3) give the agent natural-language tasks that don't name any tool (read/summarize
-  a file, fetch/extract a real webpage, deliberately request a nonexistent tool/server) and observe
-  whether it self-navigates the two-step search→invoke flow and recovers from the bad-tool error;
-  (4) exit and confirm the stderr savings report card renders correctly; repeat steps 1-2 against
-  Claude Desktop (config-format + 4-tools-visible only, not the full task list).
+- **P0-2 — Claude Code real-client acceptance test** (`TEST_PLAN.md` P0-2). **Round 1 done
+  (2026-07-28)**, round 2 (retest after the fix below) still pending. Real interactive Claude
+  Code session, context-firewall as the only MCP server, downstreams = filesystem + everything +
+  fetch. Two findings:
+  1. **Not a bug — native tool short-circuit.** Tasks that Claude Code's own built-in Bash/
+     WebFetch tools can satisfy directly got answered without ever going through
+     context-firewall's meta-tools. Expected client behavior (the host always prefers its own
+     tools when one applies); nothing to fix, recorded here only so it isn't mistaken for an
+     untested path.
+  2. **FIXED — discoverability gap.** Asked to "use the echo2 tool on the everything server",
+     the agent searched its own tool list for "everything"/"echo2", got zero matches against the
+     4 static meta-tool descriptions (none of which named any downstream server), and concluded
+     no such server was configured — even though `everything` was connected behind the proxy the
+     whole time. Root cause: `list_tool_categories`/`search_tools`/`invoke_tool`'s descriptions
+     in `src/server/meta-tools.ts` were static text with no downstream server names in them, so
+     name-based tool-search from the client side could never match.
+     **Fix**: `createGateway()` (`src/server/gateway.ts`) now returns `{ server,
+     refreshToolDescriptions }` instead of a bare `McpServer` (capturing each `registerTool()`
+     call's `RegisteredTool` return value for the 3 discoverable meta-tools). `cli.ts` calls
+     `gateway.refreshToolDescriptions()` right after `manager.connectAll()` settles, which calls
+     `RegisteredTool.update({ description })` on each — this rewrites the description and fires
+     `notifications/tools/list_changed` itself (confirmed by reading
+     `node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js`: `registerTool()` already
+     declares the `tools.listChanged: true` capability, and `RegisteredTool.update()` calls
+     `sendToolListChanged()` internally — no separate notification wiring needed).
+     `read_more` is left untouched (no server-scoped content). Descriptions now name every
+     `status === 'connected'` server with its tool count (unavailable servers never appear);
+     lists longer than 8 servers truncate to the first 8 + `"and N more"`. Example
+     (`everything`/`filesystem`/`fetch`, all connected):
+     `list_tool_categories`: "...Connected downstream servers: everything (13 tools), filesystem
+     (14 tools), fetch (1 tool). Call this first for details."; `search_tools`: "Search tools
+     across downstream servers (everything, filesystem, fetch) by keyword..."; `invoke_tool`:
+     "Invoke a tool on a downstream server (everything, filesystem, fetch)...". Tests:
+     `test/unit/meta-tools.test.ts` (new, 7 cases: static fallback when nothing connected, each
+     of the 3 descriptions contains server names/counts, singular "1 tool" not "1 tools",
+     >8-server truncation with "and N more", no-truncation boundary at exactly 8);
+     `test/integration/e2e.test.ts` (+1: real client re-calls `listTools()` after downstreams
+     report connected, asserts all 3 descriptions contain "everything" and "filesystem" — note
+     the SDK client does not auto-refetch on `list_changed`, so the test re-polls manually, same
+     as a real client would). `test/integration/chaos.test.ts` updated for the
+     `createGateway()` return-shape change (`gateway.connect(...)` → `gateway.server.connect(...)`).
+     `npm run build && npm test`: 171/171 passing (was 163).
+  - **Round 2 (retest, not yet done)**: repeat the same real Claude Code session with the fix in
+    place — confirm the agent now finds `everything`/`echo2` via `search_tools` (or via
+    `list_tool_categories`'s server list) instead of concluding the server doesn't exist; (4)
+    exit and confirm the stderr savings report card renders correctly; repeat steps 1-2 against
+    Claude Desktop (config-format + 4-tools-visible only, not the full task list).
 - **P1-1 — GitHub server portion** (`TEST_PLAN.md` P1-1). The no-token portion (4 downstream
   servers, 37 tools) is done — see "P0-3/P1-1 benchmark" above. Still needed: a real run with
   `GITHUB_TOKEN` supplied by the user, adding `@modelcontextprotocol/server-github`'s ~94 tools to

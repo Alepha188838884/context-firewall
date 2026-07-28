@@ -123,6 +123,25 @@ describe('context-firewall e2e', () => {
     );
   });
 
+  // P0-2 discoverability fix: an agent that searches its own tool list by downstream server
+  // name (e.g. "everything") must actually find it - static descriptions with no server names
+  // in them never match. gateway.ts calls refreshToolDescriptions() right after
+  // manager.connectAll() settles, which rewrites descriptions and fires
+  // notifications/tools/list_changed; the SDK client does not auto-refetch on that
+  // notification, so the test re-calls listTools() itself (same as a real client would once it
+  // observes the notification and decides to refresh).
+  it('meta-tool descriptions are refreshed with connected downstream server names', async () => {
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((t) => [t.name, t.description ?? '']));
+
+    expect(byName.get('list_tool_categories')).toContain('everything');
+    expect(byName.get('list_tool_categories')).toContain('filesystem');
+    expect(byName.get('search_tools')).toContain('everything');
+    expect(byName.get('search_tools')).toContain('filesystem');
+    expect(byName.get('invoke_tool')).toContain('everything');
+    expect(byName.get('invoke_tool')).toContain('filesystem');
+  });
+
   it('list_tool_categories reports both downstreams connected with their real tool counts', async () => {
     const result = await client.callTool({ name: 'list_tool_categories', arguments: {} });
     const parsed = JSON.parse(firstText(result as CallToolResult)) as {

@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     onCallStats: (stats) => report.recordCall(stats),
   });
   const transport = new StdioServerTransport();
-  await gateway.connect(transport);
+  await gateway.server.connect(transport);
   log.info('gateway connected on stdio');
 
   const writeReport = (): void => {
@@ -123,6 +123,7 @@ async function main(): Promise<void> {
   });
 
   await manager.connectAll();
+  gateway.refreshToolDescriptions();
 
   const states = manager.getServerStates();
   const connected = states.filter((s) => s.status === 'connected');

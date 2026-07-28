@@ -43,3 +43,54 @@ export const READ_MORE = {
     length: z.number().optional(),
   },
 };
+
+/**
+ * Dynamic description support: once downstream servers are connected, the 3 discoverable
+ * meta-tools (list_tool_categories, search_tools, invoke_tool) get their static descriptions
+ * rewritten to name the actually-connected downstream servers. This is the fix for a real
+ * acceptance-test finding (TEST_PLAN.md P0-2): an agent searching its own tool list by keyword
+ * (e.g. "everything") never matches a static description with no server names in it, so it
+ * concludes the requested server isn't available even though it's connected behind this proxy.
+ */
+
+const MAX_SERVERS_IN_DESCRIPTION = 8;
+
+function joinWithLimit(items: string[]): string {
+  if (items.length <= MAX_SERVERS_IN_DESCRIPTION) {
+    return items.join(', ');
+  }
+  const shown = items.slice(0, MAX_SERVERS_IN_DESCRIPTION);
+  const remaining = items.length - MAX_SERVERS_IN_DESCRIPTION;
+  return `${shown.join(', ')}, and ${remaining} more`;
+}
+
+export interface ConnectedServerInfo {
+  name: string;
+  toolCount: number;
+}
+
+export function buildListToolCategoriesDescription(servers: ConnectedServerInfo[]): string {
+  if (servers.length === 0) {
+    return LIST_TOOL_CATEGORIES.description;
+  }
+  const list = joinWithLimit(
+    servers.map((s) => `${s.name} (${s.toolCount} tool${s.toolCount === 1 ? '' : 's'})`)
+  );
+  return `List all downstream MCP servers with status, tool counts, and capability categories. Connected downstream servers: ${list}. Call this first for details.`;
+}
+
+export function buildSearchToolsDescription(servers: ConnectedServerInfo[]): string {
+  if (servers.length === 0) {
+    return SEARCH_TOOLS.description;
+  }
+  const list = joinWithLimit(servers.map((s) => s.name));
+  return `Search tools across downstream servers (${list}) by keyword; returns full input schemas for matches. Use before invoke_tool.`;
+}
+
+export function buildInvokeToolDescription(servers: ConnectedServerInfo[]): string {
+  if (servers.length === 0) {
+    return INVOKE_TOOL.description;
+  }
+  const list = joinWithLimit(servers.map((s) => s.name));
+  return `Invoke a tool on a downstream server (${list}). Large outputs are compressed; full output retrievable via read_more with the returned handle.`;
+}

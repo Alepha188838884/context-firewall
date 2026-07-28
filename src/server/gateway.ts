@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { RegisteredTool } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { DownstreamManager } from '../downstream/manager.js';
 import type { Logger } from '../log.js';
@@ -6,7 +7,15 @@ import type { Config, CallStats } from '../types.js';
 import type { ArtifactStore } from '../artifacts.js';
 import { resolvePolicy } from '../config.js';
 import { runPipeline } from '../pipeline/index.js';
-import { LIST_TOOL_CATEGORIES, SEARCH_TOOLS, INVOKE_TOOL, READ_MORE } from './meta-tools.js';
+import {
+  LIST_TOOL_CATEGORIES,
+  SEARCH_TOOLS,
+  INVOKE_TOOL,
+  READ_MORE,
+  buildListToolCategoriesDescription,
+  buildSearchToolsDescription,
+  buildInvokeToolDescription,
+} from './meta-tools.js';
 
 function textResult(text: string, isError = false): CallToolResult {
   return { content: [{ type: 'text', text }], isError };
@@ -20,16 +29,27 @@ export interface GatewayDeps {
   onCallStats?: (stats: CallStats) => void;
 }
 
+export interface Gateway {
+  server: McpServer;
+  /**
+   * Rewrites the descriptions of list_tool_categories/search_tools/invoke_tool to name the
+   * currently-connected downstream servers (see meta-tools.ts for why). Call once
+   * `manager.connectAll()` has settled. `RegisteredTool.update()` sends
+   * `notifications/tools/list_changed` itself - no separate notification call is needed.
+   */
+  refreshToolDescriptions: () => void;
+}
+
 /**
  * Builds the upstream MCP server exposing the 4 meta-tools (list_tool_categories,
  * search_tools, invoke_tool, read_more) backed by the given DownstreamManager.
  */
-export function createGateway(deps: GatewayDeps): McpServer {
+export function createGateway(deps: GatewayDeps): Gateway {
   const { manager, logger, config, store, onCallStats } = deps;
   const server = new McpServer({ name: 'context-firewall', version: '0.1.0' });
   const registry = manager.getRegistry();
 
-  server.registerTool(
+  const listToolCategoriesTool: RegisteredTool = server.registerTool(
     LIST_TOOL_CATEGORIES.name,
     { description: LIST_TOOL_CATEGORIES.description, inputSchema: LIST_TOOL_CATEGORIES.inputSchema },
     (): CallToolResult => {
@@ -49,7 +69,7 @@ export function createGateway(deps: GatewayDeps): McpServer {
     }
   );
 
-  server.registerTool(
+  const searchToolsTool: RegisteredTool = server.registerTool(
     SEARCH_TOOLS.name,
     { description: SEARCH_TOOLS.description, inputSchema: SEARCH_TOOLS.inputSchema },
     ({ query, limit }): CallToolResult => {
@@ -71,7 +91,7 @@ export function createGateway(deps: GatewayDeps): McpServer {
     }
   );
 
-  server.registerTool(
+  const invokeToolTool: RegisteredTool = server.registerTool(
     INVOKE_TOOL.name,
     { description: INVOKE_TOOL.description, inputSchema: INVOKE_TOOL.inputSchema },
     async ({ server: serverName, tool, args }): Promise<CallToolResult> => {
@@ -117,5 +137,16 @@ export function createGateway(deps: GatewayDeps): McpServer {
     }
   );
 
-  return server;
+  const refreshToolDescriptions = (): void => {
+    const connected = manager
+      .getServerStates()
+      .filter((s) => s.status === 'connected')
+      .map((s) => ({ name: s.name, toolCount: s.toolCount }));
+
+    listToolCategoriesTool.update({ description: buildListToolCategoriesDescription(connected) });
+    searchToolsTool.update({ description: buildSearchToolsDescription(connected) });
+    invokeToolTool.update({ description: buildInvokeToolDescription(connected) });
+  };
+
+  return { server, refreshToolDescriptions };
 }
