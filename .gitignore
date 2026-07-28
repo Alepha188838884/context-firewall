@@ -5,3 +5,8 @@ dist
 .DS_Store
 .scratch
 test/integration/fixtures/data
+
+# local P0-2 test files (machine-specific paths)
+.mcp.json
+cf-local-config.json
+cf-session-report.md
