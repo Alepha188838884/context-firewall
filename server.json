@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.Alepha188838884/context-firewall",
+  "description": "Local MCP proxy that collapses N downstream servers' tools into 4 meta-tools and compresses large tool outputs (HTML, JSON, base64) with full-output retrieval and token-savings reports.",
+  "repository": {
+    "url": "https://github.com/Alepha188838884/context-firewall",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "context-firewall",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "named",
+          "name": "--config",
+          "description": "Absolute path to the Context Firewall JSON config file (declares downstream MCP servers and compression policy)",
+          "format": "filepath",
+          "isRequired": true
+        }
+      ]
+    }
+  ]
+}
