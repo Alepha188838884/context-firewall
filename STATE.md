@@ -537,8 +537,19 @@ not-yet-connected).
 
 ## Deferred tests (pending)
 
-- **P0-2 — Claude Code real-client acceptance test** (`TEST_PLAN.md` P0-2). **Round 1 done
-  (2026-07-28)**, round 2 (retest after the fix below) still pending. Real interactive Claude
+- **P0-2 — Claude Code real-client acceptance test** (`TEST_PLAN.md` P0-2). **PASS — round 2
+  completed 2026-07-28** via two headless `claude -p --model sonnet` sessions (real Claude Code
+  agent, user-scope MCP registration, tasks named servers/goals but never meta-tool names).
+  Observed autonomous workflow, verified from session transcripts + report:
+  `list_tool_categories` → `search_tools("echo2")` (no match) → self-corrected to
+  `search_tools("echo")` → `invoke_tool(everything/echo)` ✓; `invoke_tool(everything/get-tiny-image)`
+  (image content block passed through) ✓; `invoke_tool(fetch/fetch)` on a real Wikipedia page →
+  output compressed (~3,561 tokens saved per report) → agent autonomously called
+  `read_more("cf-0-d9f9", 6800, 15000)` to retrieve the remainder and its summary covered the
+  page's tail sections ✓. Report card: 28 → 4 tools, definition savings ~3,570 tokens, top-tools
+  table populated. The round-1 discoverability failure scenario ("no server named everything
+  exists") is fully reversed by the description-injection fix below. **npm publish is unblocked
+  from P0-2's side.** Round-1 history and the fix details follow. Round 1 real interactive Claude
   Code session, context-firewall as the only MCP server, downstreams = filesystem + everything +
   fetch. Two findings:
   1. **Not a bug — native tool short-circuit.** Tasks that Claude Code's own built-in Bash/
