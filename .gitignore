@@ -10,3 +10,6 @@ test/integration/fixtures/data
 .mcp.json
 cf-local-config.json
 cf-session-report.md
+
+# internal design doc (competitive analysis / marketing strategy) — not for public repo
+context-firewall-架构设计.md

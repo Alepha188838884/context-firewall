@@ -2,9 +2,19 @@
 
 [中文文档](./README.zh.md)
 
-**Turn 50+ MCP tools into 3, and shrink large tool outputs by 60–95% (real HTML/JSON, measured — see [benchmark](./STATE.md)) — for any MCP client, any model.** Any output still over your configured token budget after compression is hard-truncated to that budget, with the full original retrievable via `read_more`.
+**Turn 50+ MCP tools into 4, and shrink large tool outputs by 60–95% (real HTML/JSON, measured — see [benchmark](./STATE.md)) — for any MCP client, any model.** Any output still over your configured token budget after compression is hard-truncated to that budget, with the full original retrievable via `read_more`.
 
 Context Firewall is a local MCP proxy that sits between your AI agent (Claude Code, Claude Desktop, Cursor, Cline, ...) and every downstream MCP server you've configured. It exposes exactly 4 tools to the client, no matter how many tools the downstream servers actually have, and compresses large tool outputs (raw HTML, base64 blobs, giant JSON) before they ever reach the model's context window.
+
+## Measured results
+
+| Metric | Result |
+| --- | --- |
+| Tool collapse | **122 → 4** exposed meta-tools (5 real downstream servers incl. official GitHub `github-mcp-server`, 85 tools) |
+| Tool-definition savings | **~28,600 tokens** *(estimated, chars ÷ 3.5)* — 102,158 raw definition chars vs. 2,146 exposed |
+| Output compression | **60–95%+** on real-world HTML/JSON, e.g. a live Wikipedia page via the `fetch` tool: 232,391 → 6,907 chars (**97.0%**, measured); a GitHub issues JSON payload via the `jsonSummary` stage: 186,810 → 3,480 chars (**98.1%**, measured) |
+
+All figures measured against real downstream MCP servers, not synthetic data — see [STATE.md](./STATE.md) ("P1-1 — github server portion" section) for full methodology.
 
 ## What it does
 

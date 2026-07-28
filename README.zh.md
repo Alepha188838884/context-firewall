@@ -2,9 +2,19 @@
 
 [English README](./README.md)
 
-**把 50+ 个 MCP 工具变成 3 个,再把大体积工具输出瘦身 60–95%(真实 HTML/JSON 实测,见 [benchmark](./STATE.md))——适配任意 MCP 客户端、任意模型。** 压缩后仍超出你配置的 token 预算的输出,会被硬截断到该预算以内,完整原文始终可通过 `read_more` 取回。
+**把 50+ 个 MCP 工具变成 4 个,再把大体积工具输出瘦身 60–95%(真实 HTML/JSON 实测,见 [benchmark](./STATE.md))——适配任意 MCP 客户端、任意模型。** 压缩后仍超出你配置的 token 预算的输出,会被硬截断到该预算以内,完整原文始终可通过 `read_more` 取回。
 
 Context Firewall 是一个本地 MCP 代理,坐在你的 AI agent(Claude Code、Claude Desktop、Cursor、Cline……)和你配置的每一个下游 MCP server 之间。不管下游有多少个工具,客户端始终只看到 4 个工具;在巨大的工具输出(原始 HTML、base64 大块、超长 JSON)进入模型上下文窗口之前,先把它们压缩掉。
+
+## 实测数据
+
+| 指标 | 结果 |
+| --- | --- |
+| 工具收敛 | **122 → 4** 个暴露的元工具(5 个真实下游 server,含官方 GitHub `github-mcp-server`,85 个工具) |
+| 工具定义节省 | **约 28,600 tokens**(*估算值,字符数 ÷ 3.5*)—— 原始定义 102,158 字符 vs. 暴露后 2,146 字符 |
+| 输出压缩 | 真实 HTML/JSON 上 **60–95%+**,例如通过 `fetch` 工具实时抓取的 Wikipedia 页面:232,391 → 6,907 字符(**97.0%**,实测);经 `jsonSummary` 阶段处理的 GitHub issues JSON:186,810 → 3,480 字符(**98.1%**,实测) |
+
+以上数字均基于真实下游 MCP server 实测,非合成数据——完整方法论见 [STATE.md](./STATE.md)("P1-1 — github server portion" 一节)。
 
 ## 它做什么
 
