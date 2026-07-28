@@ -1,6 +1,6 @@
 # STATE.md — Context Firewall
 
-Last updated: 2026-07-13. This file is the handoff document between sessions — read it before
+Last updated: 2026-07-28. This file is the handoff document between sessions — read it before
 doing anything, update it before ending a session.
 
 ## Project status (v0.1)
@@ -280,6 +280,130 @@ outside the proxy, then read back through it).
    `broken` reports `status: "unavailable"` with its spawn error; all 3 others report `connected`
    with correct tool counts; a normal `invoke_tool` call against a good server (`everything/echo`)
    still round-trips correctly. No cross-contamination.
+
+### P1-1 — github server portion (2026-07-28)
+
+Completed the previously-skipped GitHub portion of `TEST_PLAN.md` P1-1 (5-downstream scale,
+GitHub as the definition-savings benchmark case). Real token obtained via `gh auth token`, used
+only as an in-memory env var passed to child processes (`GITHUB_TOKEN=$(gh auth token) npx tsx
+...`) — never written to any file, log, config, or this document. The harness's config object
+uses the literal `"${GITHUB_TOKEN}"` placeholder string (same convention `context-firewall.json`
+itself supports), expanded only into the in-memory `Config` object and the spawned child
+process's env. Verified no leakage: grepped the harness's complete stderr/stdout capture for the
+literal token string, zero hits.
+
+**GitHub server form**: the official `@modelcontextprotocol/server-github` npm package (latest
+published version 2025.4.8; `npm view` confirms `deprecated: "Package no longer supported"`)
+exposes only **26 tools** — not the ~90+-tool case `TEST_PLAN.md` P1-1 calls out as the
+definition-savings benchmark. The actively-maintained `github/github-mcp-server` (Go binary,
+commit `eb088df`, 2026-07-23) is the real ~90-tool case; no local docker available, so built it
+directly (`go build ./cmd/github-mcp-server`) and copied the binary to
+`.scratch/github-mcp-server` (gitignored build artifact, not committed). Tool count depends on
+`GITHUB_TOOLSETS`:
+- default toolset (unset env var → `context, copilot, issues, pull_requests, repos, users`):
+  **44 tools**, 43,193 raw def chars (~12,341 tokens)
+- `GITHUB_TOOLSETS=all`: **85 tools**, 83,197 raw def chars (~23,771 tokens)
+
+The benchmark below uses `GITHUB_TOOLSETS=all` (85 tools) as the "full" case, since that's what
+reproduces `TEST_PLAN`'s "~90+ tools" framing; default-toolset numbers are given separately so a
+reader citing these figures knows which scale they apply to.
+
+**Harness**: same methodology as the 2026-07-13 4-downstream benchmark — real
+`DownstreamManager` + `createGateway` + pipeline code (unmodified), wired to an
+`InMemoryTransport` client/server pair, per-call `CallStats` captured via `onCallStats`. Script:
+`.scratch/bench-p1-1-github.mts` (gitignored, not committed, same convention as `bench*.mts`
+above).
+
+**5-downstream convergence** (filesystem + everything + memory + fetch + github[`--toolsets all`]):
+
+| server | status | tools |
+|---|---|---:|
+| filesystem | connected | 14 |
+| everything | connected | 13 |
+| memory | connected | 9 |
+| fetch | connected | 1 |
+| github | connected | 85 |
+| **total** | **5/5 connected** | **122 → 4 exposed meta-tools** |
+
+**Definition savings** (github `--toolsets all`, 122 total downstream tools):
+- raw tool defs: **102,158 chars (~29,188 tokens)** — github alone accounts for 83,197 chars
+  (85 tools), ~81% of the raw total
+- exposed meta-tool defs: 2,146 chars (~614 tokens) — identical to the 4-server run, since the 4
+  meta-tool schemas don't change with downstream count
+- **definition savings: ~28,574 tokens**. This clears `TEST_PLAN`'s "数万 token 量级"
+  (tens-of-thousands) expectation, confirming the 2026-07-13 session's caveat was correct in
+  both directions: at 4 servers/37 tools (no GitHub) it measured ~4.8K tokens — short of the
+  claim; at 5 servers/122 tools including GitHub `--toolsets all` it's ~28.6K tokens — matches
+  the claim. The claim is real, but only at this scale.
+- **at GitHub's default toolset instead** (44 tools, 81 total downstream tools): raw defs
+  62,158 chars (~17,760 tokens), definition savings **~17,146 tokens** — an order of magnitude
+  above the no-GitHub baseline, but still short of "数万" in a strict reading (tens of thousands
+  ⇒ 20K+). The "数万" framing holds cleanly only at `GITHUB_TOOLSETS=all` scale; a user running
+  GitHub's default toolset should expect high-teens-of-thousands, not tens-of-thousands.
+
+**list_tool_categories size** (5-server scale): **579 chars (~166 tokens)** — still comfortably
+under the 300-token/~1,050-char target even with GitHub's 85 tools added. (`categorize()` caps
+at 6 category words per server regardless of that server's tool count, so raw tool count barely
+moves this number — expected, not a surprise.)
+
+**search_tools("create issue") cross-server accuracy**: top 5 hits were all `github/*`
+(`issue_write`, `add_issue_comment`, `assign_copilot_to_issue`, `assign_copilot_to_issue_with_intent`,
+`create_branch`) — zero contamination from filesystem/everything/memory/fetch. (This
+github-mcp-server version consolidates create/update into `issue_write` rather than a separate
+`create_issue` tool; still correctly surfaced as the top hit for the query.)
+
+**invoke_tool real calls** (read-only, real public GitHub data):
+
+| tool | chars before | chars after | stagesApplied | bypassed | notes |
+|---|---:|---:|---|---|---|
+| `github/search_repositories` (query="modelcontextprotocol") | 15,118 | 3,073 | jsonSummary | — | **79.7% reduction.** Spot-checked: output re-`JSON.parse`s cleanly, homogeneous-array folding kept name/description/stars/url on the first N repos plus a `"…(25 more items...)"` note — same shape as the 2026-07-13 npm-registry/github-issues jsonSummary fixes, no regression on this real payload. |
+| `github/list_issues` (facebook/react, perPage=100) | 232,258 | 6,891 | *(none)* | **security** | Not a compression result — see Finding 4 below. Recorded separately so it isn't misread as a 97%-style compression data point; it's a security-bypass followed by hard truncation, zero compression stages ran. |
+
+### Finding 4 (recorded, not fixed) — safety keyword scan false-positive on real JSON, same class as Finding 1
+
+`isSecuritySensitive()` (`src/pipeline/safety.ts`) scans the first 500 raw chars for keywords
+including `\bfailure\b`. The real `github/list_issues` response for `facebook/react` has, in its
+first 500 raw chars, an issue titled "...it can never record a **failure**..." — this trips the
+keyword scan and bypasses compression entirely, so the 232,258-char raw JSON gets hard-truncated
+to ~6,891 chars of the *first* issue's raw JSON instead of running through `jsonSummaryStage`
+(confirmed by direct diagnostic: `text.slice(0, 500)` on the raw `list_issues` output contains
+the word "failure").
+
+Same underlying issue as the 2026-07-13 Finding 1 (MDN's inline `catch (error) {` falsely
+bypassing an HTML page), but Finding 1's fix (`isSecuritySensitive()` skips the keyword scan
+entirely when `looksLikeHtml(text)` is true) only exempts HTML — plain JSON/text still gets the
+raw 500-char keyword scan, and real-world JSON API responses (issue trackers, support tickets,
+changelogs, ...) routinely contain words like "error"/"failed"/"warning" in ordinary content
+within the first 500 chars, unrelated to the tool call's own success/failure. Positionally
+fragile the same way Finding 1 was: a different `perPage`, sort order, or issue subset would very
+plausibly not trip it. **Not fixed** — this session's scope was benchmarking, not another
+`safety.ts` change; recorded for a future session. Likely fix shape: a JSON-aware exemption
+analogous to `looksLikeHtml()`'s (e.g. only scan for keywords in the value strings, not
+structural JSON, or restrict the raw-prefix keyword scan to outputs short enough that a keyword
+hit is more plausibly *the whole message* rather than incidental content deep inside a larger
+structure).
+
+### Finding 5 (recorded, not fixed) — README Quickstart github example uses the wrong env var name
+
+`README.md`/`README.zh.md`'s Quickstart config snippet has:
+```json
+"github": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" }
+}
+```
+`@modelcontextprotocol/server-github` (confirmed by reading its packed `dist/common/utils.js`)
+only reads `process.env.GITHUB_PERSONAL_ACCESS_TOKEN` — it never looks at `GITHUB_TOKEN`.
+Copy-pasting this example produces a `github` downstream that silently runs unauthenticated
+(subject to GitHub's low anonymous rate limit) rather than erroring, since config loading has no
+way to validate env var *names* a downstream process expects. Separately, this same example pins
+the archived/deprecated npm package (26 tools) rather than the actively-maintained
+`github/github-mcp-server` (44–85 tools depending on toolsets) used for the benchmark above — a
+reader copying this snippet as-is would not reproduce the numbers in this section. **Not fixed**
+(out of this session's scope, per task instructions to record bugs found rather than fix them);
+fix shape is a one-line env key rename (`GITHUB_TOKEN` → `GITHUB_PERSONAL_ACCESS_TOKEN`) plus a
+note about which GitHub server binary/toolset scale the definition-savings numbers correspond to.
 
 ### P0-3 — compression benchmark (real data, default policy: `maxOutputTokens: 2000`)
 
@@ -595,12 +719,17 @@ not-yet-connected).
     `list_tool_categories`'s server list) instead of concluding the server doesn't exist; (4)
     exit and confirm the stderr savings report card renders correctly; repeat steps 1-2 against
     Claude Desktop (config-format + 4-tools-visible only, not the full task list).
-- **P1-1 — GitHub server portion** (`TEST_PLAN.md` P1-1). The no-token portion (4 downstream
-  servers, 37 tools) is done — see "P0-3/P1-1 benchmark" above. Still needed: a real run with
-  `GITHUB_TOKEN` supplied by the user, adding `@modelcontextprotocol/server-github`'s ~94 tools to
-  the mix — this is the benchmark case the "tens of thousands of tokens saved" definition-savings
-  claim was originally calibrated against, and the current README/STATE numbers (~4.8K tokens at
-  37 tools) are honestly scale-dependent, not the headline figure.
+- **P1-1 — GitHub server portion — DONE (2026-07-28)** (`TEST_PLAN.md` P1-1). See "P1-1 — github
+  server portion (2026-07-28)" above: 5/5 downstreams connected (122 tools total, including
+  github's 85 via `github/github-mcp-server --toolsets all`, not the archived/deprecated
+  `@modelcontextprotocol/server-github` npm package which only has 26), definition savings
+  ~28.6K tokens — confirms the "数万 token 量级" claim at this scale (default GitHub toolset,
+  44 tools, lands at ~17.1K — an order of magnitude above the no-GitHub 4.8K baseline but short
+  of "数万" in a strict reading). Two findings recorded (not fixed, out of scope): a
+  safety-keyword-scan false positive on real `list_issues` JSON (Finding 4, same class as the
+  2026-07-13 Finding 1 but for JSON rather than HTML), and a wrong env var name
+  (`GITHUB_TOKEN` should be `GITHUB_PERSONAL_ACCESS_TOKEN`) in both READMEs' Quickstart github
+  example (Finding 5).
 - **P2-2 — Cursor/Cline real-connection testing** (`TEST_PLAN.md` P2-2). Only the documentation
   half is done (config format verified against each client's own docs — see above). Neither client
   has actually been connected to a running Context Firewall instance and driven through a task;
