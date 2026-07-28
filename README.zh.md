@@ -81,8 +81,6 @@ npx context-firewall --config context-firewall.json
 }
 ```
 
-在 `context-firewall` npm 包正式发布前,把上面的 `command`/`args` 换成本地路径:`"command": "node", "args": ["/path/to/dist/cli.js", "--config", "/absolute/path/to/context-firewall.json"]`。
-
 ### Claude Code
 
 项目级 `.mcp.json`(放在仓库根目录,格式同上),或者用 CLI:
@@ -107,12 +105,12 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 
 | 客户端 | 状态 |
 | --- | --- |
-| Claude Code | 已测试* |
-| Claude Desktop | 已测试* |
+| Claude Code | **真实 agent 会话实测通过** —— 自主 list → search → invoke → read_more 工作流端到端验证 |
+| Claude Desktop | 协议级验证* |
 | Cursor | 配置格式已核实文档,欢迎社区实测反馈 |
 | Cline | 配置格式已核实文档,欢迎社区实测反馈 |
 
-\* 通过 MCP 协议集成测试验证(163 个自动化测试,含针对真实下游 server 的完整 stdio 协议往返)。真实客户端验收测试(`TEST_PLAN.md` P0-2)计划在 npm 发布前完成——测试通过后本条措辞会升级。
+\* 通过 MCP 协议集成测试验证(176 个自动化测试,含针对真实下游 server 的完整 stdio 协议往返)。欢迎真实客户端使用反馈。
 
 ## 配置
 

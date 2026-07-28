@@ -81,8 +81,6 @@ Each client below takes the same server entry:
 }
 ```
 
-Before the `context-firewall` npm package is published, replace the `command`/`args` pair with a local path: `"command": "node", "args": ["/path/to/dist/cli.js", "--config", "/absolute/path/to/context-firewall.json"]`.
-
 ### Claude Code
 
 Project-scoped `.mcp.json` in your repo root (shown above), or via the CLI:
@@ -107,12 +105,12 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 
 | Client | Status |
 | --- | --- |
-| Claude Code | tested* |
-| Claude Desktop | tested* |
+| Claude Code | **tested in real agent sessions** — autonomous list → search → invoke → read_more workflow verified end-to-end |
+| Claude Desktop | protocol-verified* |
 | Cursor | config format documented, community testing welcome |
 | Cline | config format documented, community testing welcome |
 
-\* Verified via MCP protocol integration tests (163 automated tests, including full stdio protocol round-trips against real downstream servers). Real-client acceptance testing (`TEST_PLAN.md` P0-2) is scheduled before the npm publish; this note will be upgraded once that pass completes.
+\* Verified via MCP protocol integration tests (176 automated tests, including full stdio protocol round-trips against real downstream servers). Real-client reports welcome.
 
 ## Configuration
 
