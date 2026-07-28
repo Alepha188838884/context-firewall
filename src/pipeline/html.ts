@@ -1,6 +1,7 @@
 import TurndownService from 'turndown';
 import type { PipelineStage } from '../types.js';
 import { looksLikeHtml } from './html-detect.js';
+import { looksLikeJson } from './json-detect.js';
 
 // Constructing TurndownService has real cost, so share a single instance across calls.
 let turndownInstance: TurndownService | undefined;
@@ -15,21 +16,6 @@ function getTurndown(): TurndownService {
 // Turndown is slow on (and gets no value from) huge script/style/svg blobs, so strip them
 // before conversion.
 const SCRIPT_STYLE_SVG_PATTERN = /<(script|style|svg)[^>]*>[\s\S]*?<\/\1>/gi;
-
-// Cheap shape pre-check (first non-whitespace char) before paying for a full JSON.parse -
-// only candidates that look like JSON pay the parse cost.
-function looksLikeJson(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-    return false;
-  }
-  try {
-    JSON.parse(trimmed);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export const htmlToMarkdownStage: PipelineStage = {
   name: 'htmlToMarkdown',

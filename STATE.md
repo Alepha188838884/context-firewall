@@ -359,7 +359,7 @@ github-mcp-server version consolidates create/update into `issue_write` rather t
 | `github/search_repositories` (query="modelcontextprotocol") | 15,118 | 3,073 | jsonSummary | — | **79.7% reduction.** Spot-checked: output re-`JSON.parse`s cleanly, homogeneous-array folding kept name/description/stars/url on the first N repos plus a `"…(25 more items...)"` note — same shape as the 2026-07-13 npm-registry/github-issues jsonSummary fixes, no regression on this real payload. |
 | `github/list_issues` (facebook/react, perPage=100) | 232,258 | 6,891 | *(none)* | **security** | Not a compression result — see Finding 4 below. Recorded separately so it isn't misread as a 97%-style compression data point; it's a security-bypass followed by hard truncation, zero compression stages ran. |
 
-### Finding 4 (recorded, not fixed) — safety keyword scan false-positive on real JSON, same class as Finding 1
+### Finding 4 (FIXED 2026-07-28) — safety keyword scan false-positive on real JSON, same class as Finding 1
 
 `isSecuritySensitive()` (`src/pipeline/safety.ts`) scans the first 500 raw chars for keywords
 including `\bfailure\b`. The real `github/list_issues` response for `facebook/react` has, in its
@@ -376,14 +376,35 @@ raw 500-char keyword scan, and real-world JSON API responses (issue trackers, su
 changelogs, ...) routinely contain words like "error"/"failed"/"warning" in ordinary content
 within the first 500 chars, unrelated to the tool call's own success/failure. Positionally
 fragile the same way Finding 1 was: a different `perPage`, sort order, or issue subset would very
-plausibly not trip it. **Not fixed** — this session's scope was benchmarking, not another
-`safety.ts` change; recorded for a future session. Likely fix shape: a JSON-aware exemption
-analogous to `looksLikeHtml()`'s (e.g. only scan for keywords in the value strings, not
-structural JSON, or restrict the raw-prefix keyword scan to outputs short enough that a keyword
-hit is more plausibly *the whole message* rather than incidental content deep inside a larger
-structure).
+plausibly not trip it.
 
-### Finding 5 (recorded, not fixed) — README Quickstart github example uses the wrong env var name
+**Fix (2026-07-28)**: same shape as Finding 1's HTML exemption. Extracted the `looksLikeJson()`
+first-char-precheck-then-`JSON.parse()` helper (previously private to `html.ts`) into a new
+shared `src/pipeline/json-detect.ts`; `html.ts` now imports it from there instead of defining its
+own copy. `isSecuritySensitive()` (`src/pipeline/safety.ts`) now checks `looksLikeJson(text)`
+right after the existing `looksLikeHtml()` check (both before the keyword scan) and returns
+`false` immediately for valid JSON — the `result.isError === true` structured signal is untouched
+and still fires first/always. Safety argument (see the code comment in `safety.ts`): a JSON-shaped
+error response (e.g. `{"message":"Bad credentials"}`) is almost always small enough to hit the
+small-output bypass before this scan even matters; error-relevant content buried inside a large
+JSON payload is still real data, not silently dropped, since `jsonSummaryStage` preserves
+structure and the full original stays retrievable via `read_more`. Invalid JSON (starts with `{`/
+`[` but fails to parse) gets no exemption and still hits the keyword scan, same as plain text.
+Regression tests: `test/unit/safety.test.ts` → "regression (Finding 4)" (4 cases: large JSON with
+"failure" in the first 500 chars no longer bypasses; still bypasses when `isError: true`;
+plain-text "failure" message still bypasses; invalid JSON still hits the keyword scan). Integration
+regression: `test/unit/pipeline.test.ts` — a 50-item JSON array shaped like the real
+`list_issues` payload (first item's title contains "failure") now runs the full pipeline with
+`stagesApplied` containing `jsonSummary` instead of bypassing.
+**Verification** (real-shaped 232KB-class sample, 100 github-issue-shaped objects, first item's
+title containing "failure" within the first 500 chars, same construction as the real
+`facebook/react` capture): before the fix (keyword-scan-only re-simulation) the sample bypasses;
+after the fix, `isSecuritySensitive` returns `false`, `runPipeline` gives `bypassed: null`,
+`stagesApplied: ['jsonSummary']`, 186,810 → 3,480 chars (**98.1% reduction**) instead of a raw
+passthrough. `npm run build && npm test`: **176/176 passing** (was 171; +5: 4 in
+`safety.test.ts`, 1 in `pipeline.test.ts`).
+
+### Finding 5 (FIXED 2026-07-28) — README Quickstart github example uses the wrong env var name
 
 `README.md`/`README.zh.md`'s Quickstart config snippet has:
 ```json
@@ -400,10 +421,20 @@ Copy-pasting this example produces a `github` downstream that silently runs unau
 way to validate env var *names* a downstream process expects. Separately, this same example pins
 the archived/deprecated npm package (26 tools) rather than the actively-maintained
 `github/github-mcp-server` (44–85 tools depending on toolsets) used for the benchmark above — a
-reader copying this snippet as-is would not reproduce the numbers in this section. **Not fixed**
-(out of this session's scope, per task instructions to record bugs found rather than fix them);
-fix shape is a one-line env key rename (`GITHUB_TOKEN` → `GITHUB_PERSONAL_ACCESS_TOKEN`) plus a
-note about which GitHub server binary/toolset scale the definition-savings numbers correspond to.
+reader copying this snippet as-is would not reproduce the numbers in this section.
+
+**Fix (2026-07-28)**: `README.md`/`README.zh.md`'s Quickstart `github` example now uses
+`"env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }` (env *key* renamed; the
+`${GITHUB_TOKEN}` value is left as-is — it's just the example's chosen shell env var name being
+expanded, demonstrating `${VAR}` expansion, and isn't required to match the downstream's own env
+key name). Added a "Which GitHub server?" note directly under the snippet in both READMEs
+documenting both forms: the archived `@modelcontextprotocol/server-github` npm package (26 tools,
+one-line `npx -y`, still functional) and the actively-maintained
+[`github/github-mcp-server`](https://github.com/github/github-mcp-server) (44 tools default
+toolset / 85 with `GITHUB_TOOLSETS=all`, Go binary or Docker image, not npm), each with its own
+small config snippet. `context-firewall.example.json` was checked and has no `github` entry (its
+only downstream examples are `filesystem` and a generic `remote-search` HTTP server), so no
+change was needed there.
 
 ### P0-3 — compression benchmark (real data, default policy: `maxOutputTokens: 2000`)
 
@@ -725,11 +756,11 @@ not-yet-connected).
   `@modelcontextprotocol/server-github` npm package which only has 26), definition savings
   ~28.6K tokens — confirms the "数万 token 量级" claim at this scale (default GitHub toolset,
   44 tools, lands at ~17.1K — an order of magnitude above the no-GitHub 4.8K baseline but short
-  of "数万" in a strict reading). Two findings recorded (not fixed, out of scope): a
-  safety-keyword-scan false positive on real `list_issues` JSON (Finding 4, same class as the
-  2026-07-13 Finding 1 but for JSON rather than HTML), and a wrong env var name
-  (`GITHUB_TOKEN` should be `GITHUB_PERSONAL_ACCESS_TOKEN`) in both READMEs' Quickstart github
-  example (Finding 5).
+  of "数万" in a strict reading). Two findings recorded, both **fixed in a follow-up session
+  (2026-07-28)** — see "Finding 4"/"Finding 5" above: a safety-keyword-scan false positive on
+  real `list_issues` JSON (Finding 4, same class as the 2026-07-13 Finding 1 but for JSON rather
+  than HTML), and a wrong env var name (`GITHUB_TOKEN` should be `GITHUB_PERSONAL_ACCESS_TOKEN`)
+  in both READMEs' Quickstart github example (Finding 5).
 - **P2-2 — Cursor/Cline real-connection testing** (`TEST_PLAN.md` P2-2). Only the documentation
   half is done (config format verified against each client's own docs — see above). Neither client
   has actually been connected to a running Context Firewall instance and driven through a task;

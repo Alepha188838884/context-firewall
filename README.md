@@ -31,11 +31,28 @@ Minimal `context-firewall.json` (the `downstreams` block mirrors the `mcpServers
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" }
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
     }
   }
 }
 ```
+
+(`${GITHUB_TOKEN}` above is just this example's environment variable *name* — pick whatever's already set in your shell; it gets expanded into `GITHUB_PERSONAL_ACCESS_TOKEN`, the env var name the downstream server itself actually reads.)
+
+**Which GitHub server?** Two options, different tool counts:
+
+- **`@modelcontextprotocol/server-github`** (used above) — the original npm package, 26 tools, one `npx -y` line, zero extra setup. Archived/no longer maintained upstream, but still functional.
+- **[`github/github-mcp-server`](https://github.com/github/github-mcp-server)** — the actively-maintained official server, 44 tools (default toolset) to 85 (`GITHUB_TOOLSETS=all`). Ships as a Go binary or Docker image, not an npm package:
+
+  ```json
+  "github": {
+    "command": "docker",
+    "args": ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"],
+    "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
+  }
+  ```
+
+  or, running a locally-built/downloaded binary directly: `"command": "/path/to/github-mcp-server", "args": ["stdio"]` (same `env` block; add `GITHUB_TOOLSETS` to scope which of the 85 tools are exposed).
 
 ## Client setup
 

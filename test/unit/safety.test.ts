@@ -97,4 +97,44 @@ describe('isSecuritySensitive', () => {
       expect(isSecuritySensitive({}, 'Error: permission denied')).toBe(true);
     });
   });
+
+  // Regression (Finding 4, 2026-07-28 P1-1 github benchmark): a real github/list_issues JSON
+  // response contains, within its first 500 raw chars, an ordinary issue title like "...it can
+  // never record a failure..." - this used to trip the keyword scan and bypass the entire
+  // 232KB payload to a hard-truncated raw-JSON passthrough instead of running jsonSummary. Valid
+  // JSON should be exempt from the keyword scan the same way HTML documents are (Finding 1).
+  describe('regression (Finding 4): valid JSON is exempt from the keyword scan', () => {
+    function largeJsonWithFailureWord(): string {
+      const issues = Array.from({ length: 30 }, (_, i) => ({
+        id: i,
+        title: i === 0 ? 'Test assertion that it can never record a failure in CI' : `Issue number ${i}`,
+        body: 'Some ordinary issue body text that repeats a bit to add bulk. '.repeat(20),
+        state: 'open',
+      }));
+      return JSON.stringify(issues);
+    }
+
+    it('does not bypass a large JSON array containing "failure" in the first 500 chars', () => {
+      const json = largeJsonWithFailureWord();
+      // sanity: the keyword really is within the scanned prefix
+      expect(json.slice(0, 500)).toMatch(/failure/);
+      expect(isSecuritySensitive({}, json)).toBe(false);
+    });
+
+    it('still bypasses when isError is true, even for valid JSON', () => {
+      const json = largeJsonWithFailureWord();
+      expect(isSecuritySensitive({ isError: true }, json)).toBe(true);
+    });
+
+    it('plain-text (non-JSON) "failure" messages still bypass as before', () => {
+      expect(isSecuritySensitive({}, 'Error: failure occurred while processing the request.')).toBe(
+        true
+      );
+    });
+
+    it('invalid JSON (starts with { but fails to parse) still hits the keyword scan', () => {
+      const invalidJson = `{"title": "failure", ${'a'.repeat(500)}`;
+      expect(isSecuritySensitive({}, invalidJson)).toBe(true);
+    });
+  });
 });

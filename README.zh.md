@@ -31,11 +31,28 @@ npx context-firewall --config context-firewall.json
     "github": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" }
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
     }
   }
 }
 ```
+
+(上面的 `${GITHUB_TOKEN}` 只是本例选用的环境变量*名字*——用你 shell 里已有的变量名即可;它会被展开进 `GITHUB_PERSONAL_ACCESS_TOKEN`,这才是下游 server 自己实际读取的环境变量名。)
+
+**该用哪个 GitHub server?** 有两种选择,工具数量不同:
+
+- **`@modelcontextprotocol/server-github`**(上面用的这个)—— 最早的 npm 包,26 个工具,一行 `npx -y` 即可用,无需额外安装。上游已归档/不再维护,但仍可正常工作。
+- **[`github/github-mcp-server`](https://github.com/github/github-mcp-server)** —— 官方持续维护的 server,44 个工具(默认 toolset)到 85 个(`GITHUB_TOOLSETS=all`)。以 Go 二进制或 Docker 镜像形式发布,不是 npm 包:
+
+  ```json
+  "github": {
+    "command": "docker",
+    "args": ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"],
+    "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}" }
+  }
+  ```
+
+  或者直接运行本地编译/下载好的二进制:`"command": "/path/to/github-mcp-server", "args": ["stdio"]`(同样的 `env` 块;加上 `GITHUB_TOOLSETS` 可以限定 85 个工具里实际暴露哪些)。
 
 ## 客户端配置
 

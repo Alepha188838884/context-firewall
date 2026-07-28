@@ -256,4 +256,32 @@ describe('runPipeline', () => {
     expect(out.content[0]?.type).toBe('image');
     expect(out.content[1]?.type).toBe('text');
   });
+
+  // Regression (Finding 4, 2026-07-28 P1-1 github benchmark, real-world shape): a large JSON
+  // array (github/list_issues-shaped) whose first item's title contains an ordinary word like
+  // "failure" used to trip isSecuritySensitive's keyword scan and bypass compression entirely,
+  // sending the caller a hard-truncated raw-JSON blob instead of a jsonSummary-compressed one.
+  it('regression (Finding 4): large JSON containing "failure" in the first 500 chars still runs full compression, not security bypass', () => {
+    const store = new ArtifactStore();
+    const logger = mockLogger();
+    const issues = Array.from({ length: 50 }, (_, i) => ({
+      id: i,
+      title: i === 0 ? 'Test assertion that it can never record a failure in CI' : `Issue number ${i}`,
+      body: 'Some ordinary issue body text that repeats a bit to add bulk. '.repeat(30),
+      state: 'open',
+    }));
+    const text = JSON.stringify(issues);
+    // sanity: the keyword really is within the scanned prefix
+    expect(text.slice(0, 500)).toMatch(/failure/);
+    const policy = policyWithBudget(2000); // budget = 7000 chars, well under the full payload
+
+    const { result: out, stats } = runPipeline(textResult(text), policy, store, ctx, logger);
+
+    expect(stats.bypassed).toBeNull();
+    expect(stats.stagesApplied).toContain('jsonSummary');
+
+    const outText = firstText(out);
+    // still valid, retrievable JSON-ish output (jsonSummary keeps the structure parseable)
+    expect(() => JSON.parse(outText.split('\n\n[Compressed')[0] ?? outText)).not.toThrow();
+  });
 });
