@@ -27,6 +27,20 @@ function firstText(result: CallToolResult): string {
   return block && block.type === 'text' ? block.text : '';
 }
 
+// The gateway under test here runs in a separate child process (spawned below via npx/tsx), so
+// its UNTRUSTED_CONTENT_NONCE (generated once per process at module load, see gateway.ts) is
+// not the same value this test file's own process would get from importing the constant - it
+// can only be recovered from the actual response text. Match the wrapper structurally instead,
+// requiring the same nonce on both the opening and closing tag via a backreference.
+const WRAPPED_SEARCH_RESULT_RE =
+  /^<untrusted-tool-descriptions nonce="([0-9a-f]+)" note="[^"]*">\n([\s\S]*)\n<\/untrusted-tool-descriptions nonce="\1">$/;
+
+function parseSearchToolsResult(text: string): { server: string; name: string }[] {
+  const match = text.match(WRAPPED_SEARCH_RESULT_RE);
+  expect(match).not.toBeNull();
+  return JSON.parse(match![2]) as { server: string; name: string }[];
+}
+
 function makeBigJson(targetBytes: number): string {
   const sample = { id: 0, name: 'item-0', value: 0, tags: ['alpha', 'beta', 'gamma'], active: true };
   const perItem = JSON.stringify(sample).length + 1; // +1 for the array separator comma
@@ -162,7 +176,7 @@ describe('context-firewall e2e', () => {
       name: 'search_tools',
       arguments: { query: 'read file' },
     });
-    const parsed = JSON.parse(firstText(result as CallToolResult)) as { server: string; name: string }[];
+    const parsed = parseSearchToolsResult(firstText(result as CallToolResult));
 
     expect(parsed.some((r) => r.server === 'filesystem' && /read/i.test(r.name))).toBe(true);
   });

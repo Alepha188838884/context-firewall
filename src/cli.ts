@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { loadConfig } from './config.js';
 import { createLogger } from './log.js';
@@ -10,6 +11,14 @@ import { SessionReport } from './report.js';
 import { LIST_TOOL_CATEGORIES, SEARCH_TOOLS, INVOKE_TOOL, READ_MORE } from './server/meta-tools.js';
 
 const log = createLogger('context-firewall');
+
+// Read the version from package.json instead of hardcoding it here, so `--version` can't drift
+// out of sync with the actual published version on the next bump. createRequire is the
+// standard way to load JSON under NodeNext ESM without needing --resolve-json-module wired
+// through the build; '../package.json' resolves the same way from both src/cli.ts (tsx/dev)
+// and dist/cli.js (built), since dist mirrors src one level under the project root.
+const require = createRequire(import.meta.url);
+const { version: PACKAGE_VERSION } = require('../package.json') as { version: string };
 
 const HELP_TEXT = `context-firewall --config <path>
 
@@ -49,7 +58,7 @@ async function main(): Promise<void> {
   }
 
   if (args.version) {
-    process.stderr.write('0.1.0\n');
+    process.stderr.write(`${PACKAGE_VERSION}\n`);
     process.exit(0);
   }
 
@@ -129,6 +138,20 @@ async function main(): Promise<void> {
   const connected = states.filter((s) => s.status === 'connected');
   const totalTools = connected.reduce((sum, s) => sum + s.toolCount, 0);
   log.info(`connected ${connected.length}/${states.length} downstreams, ${totalTools} tools total`);
+
+  // Human-readable startup digest, distinct from the summary line above: lets an operator see
+  // at a glance what actually got connected (per-server tool counts + top categories) without
+  // having to call list_tool_categories themselves.
+  const registry = manager.getRegistry();
+  log.info(`context-firewall: ${connected.length} downstream server(s) connected`);
+  for (const state of states) {
+    if (state.status === 'connected') {
+      const categories = registry.categorize(state.name).slice(0, 5).join(', ');
+      log.info(`  ${state.name}: ${state.toolCount} tools [${categories}]`);
+    } else {
+      log.info(`  ${state.name}: FAILED — ${state.error}`);
+    }
+  }
 
   const allTools = manager.getRegistry().getAllTools();
   const rawChars = JSON.stringify(allTools).length;

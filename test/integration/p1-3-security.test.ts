@@ -25,6 +25,20 @@ function firstText(result: CallToolResult): string {
   return block && block.type === 'text' ? block.text : '';
 }
 
+// The gateway under test here runs in a separate child process (spawned below via tsx), so its
+// UNTRUSTED_CONTENT_NONCE (generated once per process at module load, see gateway.ts) is not
+// the same value this test file's own process would get from importing the constant - it can
+// only be recovered from the actual response text. Match the wrapper structurally instead,
+// requiring the same nonce on both the opening and closing tag via a backreference.
+const WRAPPED_SEARCH_RESULT_RE =
+  /^<untrusted-tool-descriptions nonce="([0-9a-f]+)" note="[^"]*">\n([\s\S]*)\n<\/untrusted-tool-descriptions nonce="\1">$/;
+
+function parseSearchToolsResult(text: string): { server: string; name: string; description: string }[] {
+  const match = text.match(WRAPPED_SEARCH_RESULT_RE);
+  expect(match).not.toBeNull();
+  return JSON.parse(match![2]) as { server: string; name: string; description: string }[];
+}
+
 function writeConfig(config: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), 'cf-p1-3-'));
   const path = join(dir, 'config.json');
@@ -214,7 +228,7 @@ describe('P1-3 #4: tool-poisoning passthrough — descriptions are transmitted v
       name: 'search_tools',
       arguments: { query: 'misbehave' },
     })) as CallToolResult;
-    const parsed = JSON.parse(firstText(result)) as { server: string; name: string; description: string }[];
+    const parsed = parseSearchToolsResult(firstText(result));
 
     const entry = parsed.find((r) => r.server === 'poison' && r.name === 'misbehave');
     expect(entry).toBeDefined();

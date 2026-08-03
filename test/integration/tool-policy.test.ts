@@ -5,10 +5,24 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { DownstreamManager } from '../../src/downstream/manager.js';
-import { createGateway } from '../../src/server/gateway.js';
+import {
+  createGateway,
+  UNTRUSTED_TOOL_DESCRIPTIONS_PREFIX,
+  UNTRUSTED_TOOL_DESCRIPTIONS_SUFFIX,
+} from '../../src/server/gateway.js';
 import { ArtifactStore } from '../../src/artifacts.js';
 import { createLogger } from '../../src/log.js';
 import type { Config } from '../../src/types.js';
+
+function parseSearchToolsResult(text: string): { server: string; name: string }[] {
+  expect(text.startsWith(UNTRUSTED_TOOL_DESCRIPTIONS_PREFIX)).toBe(true);
+  expect(text.endsWith(UNTRUSTED_TOOL_DESCRIPTIONS_SUFFIX)).toBe(true);
+  const json = text.slice(
+    UNTRUSTED_TOOL_DESCRIPTIONS_PREFIX.length,
+    text.length - UNTRUSTED_TOOL_DESCRIPTIONS_SUFFIX.length
+  );
+  return JSON.parse(json) as { server: string; name: string }[];
+}
 
 // Gateway-level integration coverage for the tool allow/deny policy (GitHub issue #1). Reuses
 // the in-process InMemoryTransport harness from chaos.test.ts's "P1-2 #6" block (real
@@ -84,7 +98,7 @@ describe('tool allow/deny policy wired into the gateway', () => {
       arguments: { query: 'misbehave' },
     })) as CallToolResult;
 
-    const parsed = JSON.parse(firstText(result)) as { server: string; name: string }[];
+    const parsed = parseSearchToolsResult(firstText(result));
     expect(parsed.some((r) => r.server === 'denied')).toBe(false);
     expect(parsed.some((r) => r.server === 'open')).toBe(true);
   });
