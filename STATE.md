@@ -863,3 +863,12 @@ not-yet-connected).
   safety-bypass classification — answered honestly (keyword prefix scan + isError, HTML/JSON
   exemptions, policy-not-transform). Replied in-channel 2026-08-03 with both issue links.
   **Next session: implement issue #1 — it was publicly promised ("starting on it").**
+- **v0.2.0 SHIPPED (2026-08-03)** — issue #1 closed within ~24h of the review. Flow:
+  fast-worker implemented; independent fast-worker review found 2 real, reproduced defects in
+  the glob matcher (adjacent-`*` catastrophic backtracking hanging the gateway; regex `.` not
+  matching newlines → deny fail-open) → rewritten as linear two-pointer matcher; 192 tests
+  green. Committed 784fd4b, released on GitHub, published to npm (user ran `npm login`/`npm
+  publish` from terminal — note: npm E404 on PUT usually means expired auth, and npm needs
+  `HTTPS_PROXY=http://127.0.0.1:7897` prefix on this machine when the local proxy is on).
+  "Shipped" follow-up posted in Discord #showcase thanking revettr_x402. **Issue #2
+  (untrusted-content framing + startup digest) is the next work item.**
