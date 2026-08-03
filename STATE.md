@@ -872,3 +872,10 @@ not-yet-connected).
   `HTTPS_PROXY=http://127.0.0.1:7897` prefix on this machine when the local proxy is on).
   "Shipped" follow-up posted in Discord #showcase thanking revettr_x402. **Issue #2
   (untrusted-content framing + startup digest) is the next work item.**
+- **v0.3.0 SHIPPED (2026-08-03, same day as v0.2.0)** — issue #2 closed. search_tools results
+  wrapped in untrusted-content delimiters with per-process random nonce (review PoC showed a
+  literal forged closing tag in a downstream description could "escape" the frame — nonce
+  makes it unforgeable); startup digest to stderr; --version un-stuck from 0.1.0; READMEs
+  document residual risk + ~80-85 token/call overhead. 196 tests green. Published to npm,
+  GitHub release live, second "shipped" follow-up posted in Discord #showcase. Both review
+  points from revettr_x402 now closed. **First star received 2026-08-03 (thefiredev-cloud).**
