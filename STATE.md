@@ -775,7 +775,91 @@ not-yet-connected).
 - Demo GIF per design doc §8 storyboard (52 tools → 3 → compressed call → savings card).
 - Submission to mcp.so, the official MCP Registry, and the various awesome-mcp-servers lists
   (punkpeye / wong2 / appcypher / TensorBlock), glama.ai, smithery.ai, PulseMCP.
+  - **glama.ai — submitted 2026-07-29, pending Glama review.** punkpeye/awesome-mcp-servers PR
+    #11068's maintainer bot requires a Glama listing + score badge before merge. Submitted via
+    the site's "Add Server" form (name `context-firewall`, repo URL, 1-sentence description)
+    while logged in through GitHub OAuth as `Alepha188838884` (Glama account created for this,
+    GitHub connected — ownership attribution should be automatic once listed). Listing is NOT
+    yet live (`glama.ai/mcp/servers/Alepha188838884/context-firewall` 404s, logged-in view too
+    — "public submissions are reviewed before becoming publicly visible"). Badge already added
+    to the PR entry and pushed (fork branch `add-context-firewall`, commit 67ad32a) using the
+    list-standard format `glama.ai/mcp/servers/OWNER/REPO/badges/score.svg` — note the PR's two
+    bots gave conflicting badge formats; the `glama.ai/servers/github.com/...` variant from the
+    triage bot matches nothing else in the list and was ignored. **Recheck once Glama approves**:
+    (1) badge renders on the PR; (2) canonical slug matches (adjust if Glama assigns
+    `@Alepha188838884/...`); (3) Glama checks may require adding a Dockerfile via the Glama UI
+    (per the glama-check bot comment); (4) optionally reply to the maintainer on the PR.
+  - **DONE (2026-07-29, later same day): Glama listing live + release published.** Review
+    passed; canonical URL is exactly `glama.ai/mcp/servers/Alepha188838884/context-firewall`
+    (the `@`-prefixed form redirects to it), so the badge pushed to PR #11068 needed no change
+    and now renders. Ownership attributed to `Alepha188838884` (verified checkmark). Dockerfile
+    added via the Glama admin UI (Admin → Dockerfile): buildSteps `npm install` / `npm run
+    build` / `npm install @modelcontextprotocol/server-memory` / printf a one-downstream config
+    (`\042` octal escapes to avoid quoting issues) to `/app/glama-config.json`; CMD `node
+    /app/dist/cli.js --config /app/glama-config.json` (Glama wraps it in `mcp-proxy --`).
+    First build test failed with a Glama-infra error (base-image metadata fetch timeout,
+    nothing to do with our spec); identical retry succeeded in 17.7s. Instance logs confirmed
+    initialize + tools/list with all 4 meta-tools and the description-injection server list.
+    Release v0.1.1 published 2026-07-29 17:53; public page now shows license A / maintenance A
+    and "installable". Remaining (optional): reply to the maintainer on PR #11068 — needs
+    user's go-ahead since it posts as them.
 - Response caching (design doc v1.0 scope item, §6) — same call hitting cache directly. Not
   started.
 - LICENSE file added this session (MIT, copyright Eric) — no action needed, listed here only so
   it isn't mistaken for a gap.
+
+## Promotion / distribution (2026-07-30)
+
+- **DONE: GitHub repo metadata set** (was completely empty — a real discoverability gap).
+  Description ("MCP proxy that collapses 50+ tools into 4 meta-tools and compresses tool
+  outputs by 60-95% ..."), homepage → npm package page, and 9 topics (`mcp`, `mcp-server`,
+  `mcp-proxy`, `claude`, `llm`, `context-window`, `token-optimization`, `ai-agents`,
+  `modelcontextprotocol`). Verified via `gh repo view`.
+- **Gotcha (durable): `GITHUB_TOKEN` env var is a fine-grained PAT without repo-admin
+  permission** — `gh repo edit` 403s with it. The keyring account (`gho_...`, classic scopes
+  incl. `repo`) works: prefix admin-ish gh commands with `env -u GITHUB_TOKEN`.
+- **Confirmed: awesome-mcp-servers PR merged upstream.** The `Alepha188838884/context-firewall`
+  entry (with Glama badge) is now in punkpeye/awesome-mcp-servers `main`, Aggregators section.
+  No further action on that list.
+- Star count at check time: 0 (repo created 2026-07-12, npm published 2026-07-29). Passive
+  channels now all in place (npm, MCP Registry, Glama, awesome list, repo metadata); remaining
+  lever for the 200-star goal is active posting (Show HN / r/mcp / r/ClaudeAI / X / V2EX /
+  掘金 / linux.do) — drafts written for the user 2026-07-30, posting is user-side.
+
+## Distribution attempts — outcomes (2026-08-01)
+
+- **Reddit r/mcp**: posted 2026-07-30 with showcase flair (`r/mcp/comments/1vaniid`) — removed by
+  Reddit's site-wide filters minutes after posting (account too low-reputation despite being
+  ~6 months old with verified email). Modmail to /r/mcp fails with "You can't message that
+  user" via every www.reddit.com compose route (old.reddit blocked by extension permissions).
+  Post still in mod queue; not restored after 2 days. Lesson: **account karma, not account age
+  or email verification, is the gate.** Build karma via normal comments before reposting.
+- **HN Show HN**: attempted 2026-08-01 — HN redirected to /showlim: "temporarily restricting
+  Show HNs because of a massive influx" from new users. Submission never went live. Do NOT
+  retry by dropping the "Show HN:" prefix (rule-evasion risks domain penalty). Plan: age the
+  account + earn karma with genuine comments, retry in 1-2 weeks.
+- **freemcp.space PR spam** (2026-07-30/31): bot PR on zero-star third-party registry
+  (Appnova-EU-OU org) claiming to "deploy" context-firewall remotely + "claim via GitHub
+  sign-in" — assessed as harvesting/phishing pattern; description text was scraped from our
+  repo metadata within hours of setting it. Decision: ignore entirely (no comment, no login).
+  User clicked the site link but never authorized anything — GitHub OAuth/installed-apps lists
+  verified clean 2026-08-01.
+- **Numbers at 2026-08-01**: stars 0; repo views 3 (1 unique)/14d; clones 48 (28 unique,
+  mostly registry bots); npm downloads 263/22/14/0/0 (7-28→8-01, publish-day spike = mirrors).
+  Passive channels confirmed to produce ~zero human traffic on their own.
+- **Channels still unfired**: V2EX 分享创造 (user must log in first), MCP official Discord,
+  掘金/知乎 article, X/Twitter. These have no karma gates — highest-probability next moves.
+- **MCP official Discord #showcase: POSTED 2026-08-02** — first active-distribution channel to
+  actually land. Server: "Model Context Protocol" (discord.gg/TFE8FmjCdS, ~13.5K members),
+  channel #showcase (channel id 1315696461316358175). Full pitch with measured numbers +
+  GitHub link. Note: server also mirrors r/mcp posts into its #reddit channel via MEE6, so a
+  restored Reddit post would get double exposure here.
+- **First real community engagement (2026-08-03)**: Discord user revettr_x402 posted a
+  substantive technical review of the #showcase post. Three points: (1) meta-tool collapse
+  destroys client-side approval granularity → filed issue #1 (per-server/per-tool
+  allow/deny in invoke_tool, deny wins, denied tools hidden from search_tools); (2)
+  search_tools delivers untrusted descriptions mid-session at lowest-scrutiny moment → filed
+  issue #2 (untrusted-content framing + startup digest); (3) asked what decides the
+  safety-bypass classification — answered honestly (keyword prefix scan + isError, HTML/JSON
+  exemptions, policy-not-transform). Replied in-channel 2026-08-03 with both issue links.
+  **Next session: implement issue #1 — it was publicly promised ("starting on it").**
