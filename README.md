@@ -64,6 +64,18 @@ Minimal `context-firewall.json` (the `downstreams` block mirrors the `mcpServers
 
   or, running a locally-built/downloaded binary directly: `"command": "/path/to/github-mcp-server", "args": ["stdio"]` (same `env` block; add `GITHUB_TOOLSETS` to scope which of the 85 tools are exposed).
 
+**Per-tool allow/deny policy.** Add `allowTools`/`denyTools` (array of exact names or `*` globs) to any downstream entry to restrict which of its tools can be invoked:
+
+```json
+"github": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "denyTools": ["delete_*"]
+}
+```
+
+Deny always wins over allow. When `allowTools` is set, only matching tools are permitted; everything else on that server is blocked. An empty `allowTools: []` is treated the same as omitting it (allow everything), not "deny everything". Blocked tools are hidden from `search_tools` results, and `invoke_tool` rejects them before dispatching to the downstream server. Tool counts in `list_tool_categories` and in the meta-tool descriptions are unfiltered totals — the policy is only enforced at `search_tools`/`invoke_tool` time.
+
 ## Client setup
 
 **Set Context Firewall as your only MCP server** — move every downstream server you currently configure directly (filesystem, github, everything, ...) into `context-firewall.json`'s `downstreams` block instead. Your agent then sees 4 tools instead of the sum of every downstream server's tool count; pointing the client at Context Firewall *alongside* your existing servers doesn't give you the tool-collapse or compression benefit.

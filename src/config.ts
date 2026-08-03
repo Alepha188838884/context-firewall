@@ -6,11 +6,15 @@ const stdioDownstreamSchema = z.object({
   command: z.string(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
+  allowTools: z.array(z.string()).optional(),
+  denyTools: z.array(z.string()).optional(),
 });
 
 const httpDownstreamSchema = z.object({
   url: z.string(),
   transport: z.literal('streamable-http').optional(),
+  allowTools: z.array(z.string()).optional(),
+  denyTools: z.array(z.string()).optional(),
 });
 
 const downstreamSchema = z.union([stdioDownstreamSchema, httpDownstreamSchema]);

@@ -7,6 +7,7 @@ import type { Config, CallStats } from '../types.js';
 import type { ArtifactStore } from '../artifacts.js';
 import { resolvePolicy } from '../config.js';
 import { runPipeline } from '../pipeline/index.js';
+import { checkToolPolicy } from '../tool-policy.js';
 import {
   LIST_TOOL_CATEGORIES,
   SEARCH_TOOLS,
@@ -46,7 +47,7 @@ export interface Gateway {
  */
 export function createGateway(deps: GatewayDeps): Gateway {
   const { manager, logger, config, store, onCallStats } = deps;
-  const server = new McpServer({ name: 'context-firewall', version: '0.1.0' });
+  const server = new McpServer({ name: 'context-firewall', version: '0.2.0' });
   const registry = manager.getRegistry();
 
   const listToolCategoriesTool: RegisteredTool = server.registerTool(
@@ -74,7 +75,14 @@ export function createGateway(deps: GatewayDeps): Gateway {
     { description: SEARCH_TOOLS.description, inputSchema: SEARCH_TOOLS.inputSchema },
     ({ query, limit }): CallToolResult => {
       logger.debug(`search_tools called: query="${query}" limit=${limit ?? ''}`);
-      const results = registry.searchTools(query, limit ?? 5);
+      const effectiveLimit = limit ?? 5;
+      // Fixed-size over-fetch window so policy-blocked candidates can be filtered out below and
+      // still leave up to `effectiveLimit` results. Not adaptive: if deny-listed tools make up
+      // a large enough share of the true top matches, fewer than `effectiveLimit` may come back.
+      const candidates = registry.searchTools(query, Math.max(effectiveLimit * 4, 20));
+      const results = candidates
+        .filter((r) => checkToolPolicy(config.downstreams[r.server], r.name).allowed)
+        .slice(0, effectiveLimit);
       if (results.length === 0) {
         return textResult('no tools matched; try broader keywords or list_tool_categories');
       }
@@ -96,6 +104,15 @@ export function createGateway(deps: GatewayDeps): Gateway {
     { description: INVOKE_TOOL.description, inputSchema: INVOKE_TOOL.inputSchema },
     async ({ server: serverName, tool, args }): Promise<CallToolResult> => {
       logger.debug(`invoke_tool called: server="${serverName}" tool="${tool}"`);
+
+      const policyCheck = checkToolPolicy(config.downstreams[serverName], tool);
+      if (!policyCheck.allowed) {
+        return textResult(
+          `Tool "${tool}" on server "${serverName}" is blocked by config policy (${policyCheck.rule})`,
+          true
+        );
+      }
+
       let result: CallToolResult;
       try {
         result = await manager.callTool(serverName, tool, args ?? {});

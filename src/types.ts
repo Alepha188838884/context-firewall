@@ -12,11 +12,15 @@ export interface StdioDownstreamConfig {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  allowTools?: string[];
+  denyTools?: string[];
 }
 
 export interface HttpDownstreamConfig {
   url: string;
   transport?: 'streamable-http';
+  allowTools?: string[];
+  denyTools?: string[];
 }
 
 export type DownstreamConfig = StdioDownstreamConfig | HttpDownstreamConfig;

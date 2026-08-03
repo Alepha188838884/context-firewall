@@ -64,6 +64,18 @@ npx context-firewall --config context-firewall.json
 
   或者直接运行本地编译/下载好的二进制:`"command": "/path/to/github-mcp-server", "args": ["stdio"]`(同样的 `env` 块;加上 `GITHUB_TOOLSETS` 可以限定 85 个工具里实际暴露哪些)。
 
+**按工具粒度的允许/拒绝策略。** 在任意下游配置项上加 `allowTools`/`denyTools`(元素为精确名称或带 `*` 的 glob),即可限制该 server 上哪些工具可被调用:
+
+```json
+"github": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "denyTools": ["delete_*"]
+}
+```
+
+拒绝始终优先于允许。设置了 `allowTools` 后,只有匹配到的工具才被放行,该 server 上其余工具一律拒绝。空数组 `allowTools: []` 等同于不设置(即全部允许),而不是"全部拒绝"。被拒绝的工具不会出现在 `search_tools` 的结果里,`invoke_tool` 也会在派发到下游 server 之前就拒绝调用。`list_tool_categories` 里的工具计数以及元工具描述里的数字都是未经策略过滤的全量计数——策略只在 `search_tools`/`invoke_tool` 时才会生效。
+
 ## 客户端配置
 
 **把 Context Firewall 设为你唯一的 MCP server**——把你目前直接挂的所有下游 server(filesystem、github、everything……)统统搬进 `context-firewall.json` 的 `downstreams` 块。这样你的 agent 看到的就是 4 个工具,而不是所有下游 server 工具数量的总和;如果只是把 Context Firewall *额外*加在现有 server 旁边,是拿不到工具收敛和压缩这两项收益的。
