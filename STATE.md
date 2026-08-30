@@ -879,3 +879,74 @@ not-yet-connected).
   document residual risk + ~80-85 token/call overhead. 196 tests green. Published to npm,
   GitHub release live, second "shipped" follow-up posted in Discord #showcase. Both review
   points from revettr_x402 now closed. **First star received 2026-08-03 (thefiredev-cloud).**
+- **Glama build failure emails (2026-08-04) — Glama infra, not our code.** Two consecutive
+  Dockerfile test builds failed (05:45 auto-triggered, 13:19 manual retry via Admin →
+  Dockerfile → Build) with the identical error at the very first step, before our repo is even
+  cloned: `debian:trixie-slim: failed to resolve source metadata for
+  docker.io/library/debian:trixie-slim: no active session for <uuid>: context deadline
+  exceeded` (6.6s / 24.5s). Same class of infra flake as the 7-29 first build (that one passed
+  on retry; this one did not — appears to be a persistent Glama builder/registry issue). Local
+  clean-clone repro of all buildSteps passes; origin/main = local = 6ef2133. Impact: low — the
+  live listing still serves release 0.1.1; failed tests don't take it down. TODO: retry Build
+  in a day or two; when it passes, consider **Build & Release** to bump the Glama release to
+  v0.3.0 (current release is 0.1.1 from 7-29). If still failing, report in Glama Discord.
+  Note: Glama admin login = GitHub OAuth (Alepha188838884), completes silently in Chrome.
+- **Pending launch assets (2026-08-09)**: Chinese article drafted at `promo-article.zh.md`
+  (repo root, intentionally uncommitted) — long version for 掘金/知乎, short version for V2EX
+  分享创造. User is traveling (Vietnam) and will publish after returning. Remaining fire plan:
+  掘金+V2EX first, 知乎 a day later, HN Show HN retry at 20:00 Beijing on a weekday (last
+  attempt 2026-08-01 hit the new-account /showlim restriction — user should accrue HN karma
+  via normal comments meanwhile). Lesson from #showcase observation: posts that ask for
+  something specific ("looking for 5 people running 3+ servers to test") get engagement;
+  broadcast-style posts don't — apply to the next Discord post.
+
+## v0.4.0 — opt-in LLM summarization stage (2026-08-30)
+
+Added a strictly opt-in LLM semantic-summarization pipeline stage for the OrcaRouter Open
+Source Program (5% revenue share when users pick OrcaRouter as endpoint), done honestly:
+provider-neutral code, OrcaRouter only in README examples, README security promise publicly
+revised to "by default" phrasing (not silently broken).
+
+- **New**: `src/pipeline/llm-summary.ts` — `createLlmSummaryStage(llm)` factory. No-ops unless
+  resolved policy has `llmSummary: true`; POSTs over-budget text to any OpenAI-compatible
+  `${baseUrl}/chat/completions` (Bearer auth, `max_tokens = policy.maxOutputTokens`); input
+  head-truncated to `min(llm.maxInputChars ?? 120_000, 400_000)` (hard cost cap); timeout via
+  AbortController (`timeoutMs ?? 20_000`, timer cleared in finally); ANY failure (non-2xx,
+  abort, malformed JSON, empty content, throw) returns input unchanged with `applied: false`
+  so truncate still enforces the budget. Success appends `[LLM summary (<model>) of N chars...
+  read_more("<handle>")]` — annotation contains fullHandle, so the A1 fallback marker in
+  `runPipeline` doesn't double-append.
+- **Async pipeline**: `PipelineStage.apply` may now return a Promise; `runPipeline` is async
+  (gateway's invoke_tool handler awaits it — it was already async). Catch-fallback semantics
+  unchanged; verified an async-rejecting stage still lands in the truncate-only fallback.
+- **Config**: top-level `llm` block (`baseUrl` url, `apiKey` with `${VAR}` expansion, `model`,
+  optional `timeoutMs`/`maxInputChars`); `llmSummary: false` added to DEFAULT_POLICY;
+  `loadConfig` fails with a clear message if any of default/perServer/perTool sets
+  `llmSummary: true` without an `llm` block.
+- **Wiring**: `DEFAULT_STAGES` untouched (no mutation — new array built in `createGateway`);
+  when `config.llm` exists the llm stage is inserted immediately before truncateStage (found
+  by indexOf); when absent, the exact `DEFAULT_STAGES` reference is passed — default path
+  byte-for-byte identical, zero new code executes, no network call possible.
+- **Security**: `isSecuritySensitive` bypass fires before the stage loop, so security-sensitive
+  outputs can never reach the LLM stage — asserted by two new pipeline-level tests (fetch spy
+  never called on either bypass path).
+- **Tests**: 213/213 passing (was 196; +17: 15 in new `test/unit/llm-summary.test.ts` with
+  fetch fully mocked, +config-validation and expansion tests in `config.test.ts`;
+  `pipeline.test.ts` mechanically awaited). Build clean.
+- **Kill-switch demo (acceptance)**: real dead port (`127.0.0.1:59999`), `llmSummary: true`,
+  129KB input → response intact in 13ms, `stagesApplied: ["truncate"]`, no llm annotation —
+  connection-refused fails fast, degrades to deterministic truncation. Scratchpad script, not
+  committed.
+- **READMEs (both, in sync)**: "no code path sends output to an external API" promise revised
+  to "by default" phrasing in "A note on token counts" + new Safety bullet; new
+  "LLM summarization (opt-in)" section (generic `${LLM_API_KEY}` example, OrcaRouter example
+  labeled "works well with free models", failure-mode + privacy notes, required Disclosure
+  subsection: 5% revenue share, optional, any provider works identically); `llmSummary` row in
+  the compression table.
+- **Known cosmetic edge (independent review, not fixed — consistent with existing stage
+  semantics)**: if summary + annotation still exceeds budget (tiny `maxOutputTokens`), the
+  subsequent truncateStage cuts it and its "showing X of Y chars" Y refers to the intermediate
+  text, same as every other stage→truncate chain today; read_more(fullHandle) is preserved by
+  truncate's own marker either way. Doesn't trigger at the default 2000-token budget.
+- **Not bumped**: package.json version left at 0.3.0 — bump to 0.4.0 at publish time, per
+  whatever release flow the user runs.
