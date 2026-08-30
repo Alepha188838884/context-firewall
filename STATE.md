@@ -950,3 +950,42 @@ revised to "by default" phrasing (not silently broken).
   truncate's own marker either way. Doesn't trigger at the default 2000-token budget.
 - **Not bumped**: package.json version left at 0.3.0 — bump to 0.4.0 at publish time, per
   whatever release flow the user runs.
+
+## v0.4.0 follow-up — provider presets + example configs (2026-08-30)
+
+OrcaRouter's program bot re-scanned and reported "no OrcaRouter provider configuration found"
+(their scanner greps for markers like `api.orcarouter.ai`). Fix: industry-standard
+multi-provider presets table — OrcaRouter becomes machine-detectable while staying exactly one
+row among four, never default/privileged.
+
+- **New `src/pipeline/llm-presets.ts`**: `LLM_PROVIDER_PRESETS` — openai / openrouter /
+  orcarouter / deepseek, identical `{ baseUrl, apiKeyEnv }` rows; `LLM_PROVIDER_NAMES` derived
+  via Object.keys is the single source for every error message (no duplicated lists).
+- **Config**: `llm.provider` as alternative to `baseUrl`. provider-only → preset baseUrl,
+  apiKey from `process.env[preset.apiKeyEnv]` (explicit `apiKey` wins); baseUrl-only →
+  unchanged old behavior; both → baseUrl wins + warning via new `loadConfig(path, onWarn?)`
+  param (cli passes `log.warn`); neither/unknown provider → errors listing all four names.
+  `loadConfig` normalizes to a fully-resolved `LlmConfig`, so types.ts / llm-summary.ts /
+  gateway.ts needed zero changes. Empty string counts as absent for both explicit `apiKey` and
+  the env var (review fix: guard was `!apiKey` but resolution was `??`, so `"apiKey": ""` +
+  valid env var used to resolve to `""` — now `||` with a comment; env var set to `""` →
+  provider-aware error).
+- **`examples/`** (new dir): `config.llm-orcarouter.json` (provider preset, model
+  `orcarouter/free` — their real difficulty-routed free tier, verified via web search
+  2026-08-30; apiKey deliberately omitted to demonstrate the preset env-var path) and
+  `config.llm-generic.json` (baseUrl + `${LLM_API_KEY}`). Strict JSON, not .jsonc — the loader
+  is plain JSON.parse, so comments live in a top-level `"_comment"` array that zod's default
+  strip behavior removes. **Gotcha discovered in review**: `expandEnvVars` runs over the WHOLE
+  parsed object before zod strips unknown keys, so a literal `${VAR}` inside `_comment` text
+  would throw when the var is unset — comments must describe env vars by name, never embed
+  `${...}` syntax. Both examples load through the real `loadConfig` in tests (env stubbed).
+- **Tests**: 224/224 passing (was 213; +11 in config.test.ts: preset resolution ×2 providers,
+  explicit-key override, both-set warns exactly once, neither/unknown errors list all names,
+  missing env var, 2 empty-string regressions, 2 example-file loads). Build clean.
+- **READMEs (both, in sync)**: `provider` shorthand is now the primary example, 4-row preset
+  table (provider | base URL | key env var), generic baseUrl form kept, OrcaRouter example
+  switched to `"provider": "orcarouter"` + `model: "orcarouter/free"` (replaces the previous
+  guessed model id `meta-llama/llama-3.3-70b-instruct:free`, which was NOT in their catalog),
+  links to both example files. Disclosure subsection unchanged.
+- **Next (manual, Eric)**: push to GitHub, wait for visibility, then re-trigger the OrcaRouter
+  application re-check ("我已经接入完成 —— 请复查"; 10-min cooldown between re-checks).

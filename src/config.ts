@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import type { Config, CompressionPolicy } from './types.js';
+import type { Config, CompressionPolicy, LlmConfig } from './types.js';
+import { LLM_PROVIDER_PRESETS, LLM_PROVIDER_NAMES, type LlmProviderName } from './pipeline/llm-presets.js';
 
 const stdioDownstreamSchema = z.object({
   command: z.string(),
@@ -28,13 +29,22 @@ const compressionPolicyPartialSchema = z.object({
   llmSummary: z.boolean().optional(),
 });
 
+const llmProviderSchema = z.enum(LLM_PROVIDER_NAMES as [LlmProviderName, ...LlmProviderName[]], {
+  errorMap: () => ({
+    message: `must be one of: ${LLM_PROVIDER_NAMES.join(', ')}`,
+  }),
+});
+
 const llmConfigSchema = z.object({
-  baseUrl: z.string().url(),
-  apiKey: z.string(),
+  provider: llmProviderSchema.optional(),
+  baseUrl: z.string().url().optional(),
+  apiKey: z.string().optional(),
   model: z.string(),
   timeoutMs: z.number().positive().optional(),
   maxInputChars: z.number().positive().optional(),
 });
+
+type RawLlmConfig = z.infer<typeof llmConfigSchema>;
 
 const configSchema = z.object({
   downstreams: z
@@ -93,7 +103,62 @@ function expandEnvVars(value: unknown, path: string): unknown {
   return value;
 }
 
-export function loadConfig(path: string): Config {
+function resolveLlmConfig(
+  raw: RawLlmConfig | undefined,
+  path: string,
+  onWarn?: (msg: string) => void
+): LlmConfig | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  const { provider, baseUrl, apiKey, model, timeoutMs, maxInputChars } = raw;
+
+  if (!provider && !baseUrl) {
+    throw new Error(
+      `Invalid config file "${path}": llm requires either "provider" (one of: ${LLM_PROVIDER_NAMES.join(', ')}) or "baseUrl"`
+    );
+  }
+
+  if (provider && baseUrl) {
+    onWarn?.('llm: both "provider" and "baseUrl" set - using the explicit baseUrl');
+  }
+
+  let resolvedBaseUrl: string;
+  let resolvedApiKey: string;
+
+  if (baseUrl) {
+    if (!apiKey) {
+      throw new Error(`Invalid config file "${path}": llm.baseUrl is set but "apiKey" is missing`);
+    }
+    resolvedBaseUrl = baseUrl;
+    resolvedApiKey = apiKey;
+  } else {
+    const preset = LLM_PROVIDER_PRESETS[provider as LlmProviderName];
+    resolvedBaseUrl = preset.baseUrl;
+    // Empty string counts as absent for both the explicit apiKey and the env var, so
+    // e.g. `"apiKey": ""` falls through to the env var, and an env var set to "" is
+    // treated the same as unset.
+    const envKey = process.env[preset.apiKeyEnv];
+    const candidate = apiKey || envKey;
+    if (!candidate) {
+      throw new Error(
+        `Invalid config file "${path}": llm.provider "${provider}" requires environment variable ${preset.apiKeyEnv} (or an explicit "apiKey")`
+      );
+    }
+    resolvedApiKey = candidate;
+  }
+
+  return {
+    baseUrl: resolvedBaseUrl,
+    apiKey: resolvedApiKey,
+    model,
+    timeoutMs,
+    maxInputChars,
+  };
+}
+
+export function loadConfig(path: string, onWarn?: (msg: string) => void): Config {
   const raw = readFileSync(path, 'utf-8');
 
   let parsed: unknown;
@@ -113,7 +178,9 @@ export function loadConfig(path: string): Config {
     throw new Error(`Invalid config file "${path}": ${details}`);
   }
 
-  const config = result.data as Config;
+  const parsedConfig = result.data;
+  const resolvedLlm = resolveLlmConfig(parsedConfig.llm, path, onWarn);
+  const config = { ...parsedConfig, llm: resolvedLlm } as Config;
 
   if (!config.llm) {
     const perServerLlmSummary = Object.values(config.compression?.perServer ?? {}).some(

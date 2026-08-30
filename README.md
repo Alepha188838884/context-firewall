@@ -201,7 +201,30 @@ The client calls `list_tool_categories()` to see what's connected and what it's 
 
 ## LLM summarization (opt-in)
 
-The deterministic pipeline can strip markup, collapse repetitive structure, and truncate - but it cannot *semantically* compress a long natural-language output (a log file, an article, a report): once the deterministic stages are done, anything still over budget just gets cut off. This optional stage fills that gap: it sends the over-budget text to a model of your choice for a factual summary (preserving IDs, paths, URLs, numbers, and error messages), appends a `read_more` pointer to the untouched full original, and leaves truncation in place as the final backstop. It is **off by default** and requires explicit opt-in at two separate layers: a top-level `llm` block *and* `llmSummary: true` in a compression policy. Any OpenAI-compatible `/chat/completions` endpoint works.
+The deterministic pipeline can strip markup, collapse repetitive structure, and truncate - but it cannot *semantically* compress a long natural-language output (a log file, an article, a report): once the deterministic stages are done, anything still over budget just gets cut off. This optional stage fills that gap: it sends the over-budget text to a model of your choice for a factual summary (preserving IDs, paths, URLs, numbers, and error messages), appends a `read_more` pointer to the untouched full original, and leaves truncation in place as the final backstop. It is **off by default** and requires explicit opt-in at two separate layers: a top-level `llm` block *and* `llmSummary: true` in a compression policy. Any OpenAI-compatible `/chat/completions` endpoint works - pick a provider preset or point `baseUrl` at anything else.
+
+```json
+{
+  "llm": {
+    "provider": "openrouter",
+    "model": "your-model-name"
+  },
+  "compression": {
+    "default": { "llmSummary": true }
+  }
+}
+```
+
+`provider` is shorthand for a preset base URL plus a conventional API-key environment variable:
+
+| Provider | Base URL | Key env var |
+| --- | --- | --- |
+| `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
+| `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `orcarouter` | `https://api.orcarouter.ai/v1` | `ORCAROUTER_API_KEY` |
+| `deepseek` | `https://api.deepseek.com/v1` | `DEEPSEEK_API_KEY` |
+
+Any other OpenAI-compatible endpoint works via `baseUrl` instead (then `apiKey` is required):
 
 ```json
 {
@@ -218,26 +241,28 @@ The deterministic pipeline can strip markup, collapse repetitive structure, and 
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `baseUrl` | string | *(required)* | Base URL of any OpenAI-compatible endpoint; the stage POSTs to `<baseUrl>/chat/completions`. |
-| `apiKey` | string | *(required)* | Sent as `Authorization: Bearer ...`. Use `${ENV_VAR}` expansion - never put a literal key in the config file. |
+| `provider` | string | *(none)* | One of the preset names above. Either `provider` or `baseUrl` is required; if both are set, the explicit `baseUrl` wins (with a warning). |
+| `baseUrl` | string | *(from preset)* | Base URL of any OpenAI-compatible endpoint; the stage POSTs to `<baseUrl>/chat/completions`. Required when no `provider` is set. |
+| `apiKey` | string | *(from preset env var)* | Sent as `Authorization: Bearer ...`. With `provider`, defaults to the preset's key env var; an explicit value (use `${ENV_VAR}` expansion - never a literal key) overrides it. Required with a bare `baseUrl`. |
 | `model` | string | *(required)* | Model name passed through to the endpoint verbatim. |
 | `timeoutMs` | number | `20000` | Abort the request after this long; on timeout the stage no-ops. |
 | `maxInputChars` | number | `120000` | Head-truncate the text sent to the API to this many chars (hard absolute cap: 400,000, regardless of config - cost protection). |
 
-Example with [OrcaRouter](https://orcarouter.ai) - works well with free models:
+Example with [OrcaRouter](https://orcarouter.ai) - works well with free models (`orcarouter/free` is their difficulty-routed free tier; the API key is read from `ORCAROUTER_API_KEY`):
 
 ```json
 {
   "llm": {
-    "baseUrl": "https://api.orcarouter.ai/v1",
-    "apiKey": "${ORCA_KEY}",
-    "model": "meta-llama/llama-3.3-70b-instruct:free"
+    "provider": "orcarouter",
+    "model": "orcarouter/free"
   },
   "compression": {
     "default": { "llmSummary": true }
   }
 }
 ```
+
+Runnable full examples: [`examples/config.llm-orcarouter.json`](examples/config.llm-orcarouter.json) and [`examples/config.llm-generic.json`](examples/config.llm-generic.json).
 
 **Failure mode**: if the endpoint is down, unreachable, times out, or returns anything malformed, the stage silently no-ops and the output falls back to deterministic truncation - an unavailable endpoint never breaks your tools.
 

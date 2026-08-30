@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const config = loadConfig(args.config);
+  const config = loadConfig(args.config, (m) => log.warn(m));
   log.info(`config loaded, ${Object.keys(config.downstreams).length} downstreams`);
 
   const manager = new DownstreamManager(config, log);

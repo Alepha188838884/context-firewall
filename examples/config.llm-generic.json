@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "Opt-in LLM summarization, configured via an explicit baseUrl (works with any OpenAI-compatible endpoint).",
+    "OFF by default: this stage only runs because BOTH the top-level llm block exists AND compression.default.llmSummary is true below.",
+    "When enabled, over-budget, non-security-sensitive tool outputs are sent to the configured endpoint - and nothing else, nowhere else. Do not enable if that is not acceptable for your data.",
+    "apiKey is required when using an explicit baseUrl (no provider preset to fall back to). Set the LLM_API_KEY environment variable, or replace the ${LLM_API_KEY} reference below with your own.",
+    "Replace baseUrl and model with your provider's values.",
+    "For known providers with a shorthand 'provider' field instead of baseUrl, see config.llm-orcarouter.json."
+  ],
+  "downstreams": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  },
+  "llm": {
+    "baseUrl": "https://api.your-provider.example/v1",
+    "model": "your-model-name",
+    "apiKey": "${LLM_API_KEY}"
+  },
+  "compression": {
+    "default": { "llmSummary": true }
+  }
+}

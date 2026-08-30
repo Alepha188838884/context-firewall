@@ -2,8 +2,12 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig, resolvePolicy, DEFAULT_POLICY } from '../../src/config.js';
 import type { Config } from '../../src/types.js';
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const examplesDir = join(__dirname, '../../examples');
 
 function writeTempConfig(content: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'cf-config-test-'));
@@ -219,6 +223,158 @@ describe('loadConfig', () => {
 
     const config = loadConfig(path);
     expect(config.llm?.apiKey).toBe('secret-llm-key');
+  });
+
+  it('resolves llm.baseUrl and apiKey from the "orcarouter" provider preset', () => {
+    vi.stubEnv('ORCAROUTER_API_KEY', 'orca-secret');
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: { provider: 'orcarouter', model: 'orcarouter/free' },
+      })
+    );
+
+    const config = loadConfig(path);
+    expect(config.llm?.baseUrl).toBe('https://api.orcarouter.ai/v1');
+    expect(config.llm?.apiKey).toBe('orca-secret');
+  });
+
+  it('resolves llm.baseUrl and apiKey from the "deepseek" provider preset (non-exclusivity)', () => {
+    vi.stubEnv('DEEPSEEK_API_KEY', 'deepseek-secret');
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: { provider: 'deepseek', model: 'deepseek-chat' },
+      })
+    );
+
+    const config = loadConfig(path);
+    expect(config.llm?.baseUrl).toBe('https://api.deepseek.com/v1');
+    expect(config.llm?.apiKey).toBe('deepseek-secret');
+  });
+
+  it('prefers an explicit apiKey over the provider preset env var', () => {
+    vi.stubEnv('ORCAROUTER_API_KEY', 'from-env');
+    vi.stubEnv('MY_EXPLICIT_KEY', 'from-explicit');
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: { provider: 'orcarouter', model: 'orcarouter/free', apiKey: '${MY_EXPLICIT_KEY}' },
+      })
+    );
+
+    const config = loadConfig(path);
+    expect(config.llm?.apiKey).toBe('from-explicit');
+  });
+
+  it('prefers explicit baseUrl over provider when both are set, and warns exactly once', () => {
+    vi.stubEnv('ORCAROUTER_API_KEY', 'orca-secret');
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: {
+          provider: 'orcarouter',
+          baseUrl: 'https://custom.example.com/v1',
+          apiKey: 'explicit-key',
+          model: 'some-model',
+        },
+      })
+    );
+
+    const onWarn = vi.fn();
+    const config = loadConfig(path, onWarn);
+    expect(config.llm?.baseUrl).toBe('https://custom.example.com/v1');
+    expect(onWarn).toHaveBeenCalledTimes(1);
+    expect(onWarn.mock.calls[0][0]).toMatch(/"provider"/);
+    expect(onWarn.mock.calls[0][0]).toMatch(/"baseUrl"/);
+  });
+
+  it('throws listing the valid preset names when neither provider nor baseUrl is set', () => {
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: { model: 'some-model', apiKey: 'x' },
+      })
+    );
+
+    expect(() => loadConfig(path)).toThrow(
+      /openai, openrouter, orcarouter, deepseek/
+    );
+  });
+
+  it('throws listing the valid preset names when an unknown provider is given', () => {
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: { provider: 'nonexistent', model: 'some-model' },
+      })
+    );
+
+    let message = '';
+    try {
+      loadConfig(path);
+      throw new Error('expected loadConfig to throw');
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain('openai');
+    expect(message).toContain('openrouter');
+    expect(message).toContain('orcarouter');
+    expect(message).toContain('deepseek');
+  });
+
+  it('throws naming the env var when a provider preset apiKeyEnv is unset and no apiKey is given', () => {
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: { provider: 'orcarouter', model: 'orcarouter/free' },
+      })
+    );
+
+    expect(() => loadConfig(path)).toThrow(/ORCAROUTER_API_KEY/);
+  });
+
+  it('treats an explicit empty-string apiKey as absent, falling back to the preset env var', () => {
+    vi.stubEnv('ORCAROUTER_API_KEY', 'orca-secret');
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: { provider: 'orcarouter', model: 'orcarouter/free', apiKey: '' },
+      })
+    );
+
+    const config = loadConfig(path);
+    expect(config.llm?.apiKey).toBe('orca-secret');
+  });
+
+  it('treats a preset env var set to an empty string as unset, throwing naming the env var', () => {
+    vi.stubEnv('ORCAROUTER_API_KEY', '');
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: { provider: 'orcarouter', model: 'orcarouter/free' },
+      })
+    );
+
+    expect(() => loadConfig(path)).toThrow(/ORCAROUTER_API_KEY/);
+  });
+
+  it('loads examples/config.llm-orcarouter.json via provider preset', () => {
+    vi.stubEnv('ORCAROUTER_API_KEY', 'orca-secret');
+    const config = loadConfig(join(examplesDir, 'config.llm-orcarouter.json'));
+
+    expect(config.llm?.baseUrl).toBe('https://api.orcarouter.ai/v1');
+    expect(config.llm?.apiKey).toBe('orca-secret');
+    expect(config.compression?.default?.llmSummary).toBe(true);
+  });
+
+  it('loads examples/config.llm-generic.json via explicit baseUrl', () => {
+    vi.stubEnv('LLM_API_KEY', 'generic-secret');
+    const config = loadConfig(join(examplesDir, 'config.llm-generic.json'));
+
+    expect(config.llm?.baseUrl).toBe('https://api.your-provider.example/v1');
+    expect(config.llm?.apiKey).toBe('generic-secret');
+    expect(config.compression?.default?.llmSummary).toBe(true);
   });
 });
 

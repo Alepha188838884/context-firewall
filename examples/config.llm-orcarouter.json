@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "Opt-in LLM summarization, configured via the 'orcarouter' provider preset.",
+    "OFF by default: this stage only runs because BOTH the top-level llm block exists AND compression.default.llmSummary is true below.",
+    "When enabled, over-budget, non-security-sensitive tool outputs are sent to the configured endpoint - and nothing else, nowhere else. Do not enable if that is not acceptable for your data.",
+    "apiKey is omitted here: with a provider preset it defaults to the ORCAROUTER_API_KEY environment variable. To override, add an explicit apiKey line referencing a different environment variable (see config.llm-generic.json for that syntax).",
+    "model 'orcarouter/free' is their difficulty-routed free tier; free-tier models cost nothing. Full catalog: https://orcarouter.ai/models",
+    "Any OpenAI-compatible provider works identically - see config.llm-generic.json."
+  ],
+  "downstreams": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    }
+  },
+  "llm": {
+    "provider": "orcarouter",
+    "model": "orcarouter/free"
+  },
+  "compression": {
+    "default": { "llmSummary": true }
+  }
+}

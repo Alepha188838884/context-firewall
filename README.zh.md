@@ -201,7 +201,30 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 
 ## LLM 语义摘要(可选启用)
 
-确定性流水线能剥离标记、折叠重复结构、做截断——但它无法对一段很长的自然语言输出(日志文件、文章、报告)做*语义级*压缩:确定性阶段跑完之后,仍然超预算的部分只能被硬生生切掉。这个可选阶段正是补这个缺口的:它把超预算的文本发给你自选的模型做事实性摘要(保留 ID、路径、URL、数字和错误信息),在结果后附上指向完整原文的 `read_more` 句柄,截断仍然作为最后的兜底保留。它**默认关闭**,且需要在两个独立层面显式启用:顶层 `llm` 配置块*和*压缩策略里的 `llmSummary: true`。任何 OpenAI 兼容的 `/chat/completions` 端点都可以用。
+确定性流水线能剥离标记、折叠重复结构、做截断——但它无法对一段很长的自然语言输出(日志文件、文章、报告)做*语义级*压缩:确定性阶段跑完之后,仍然超预算的部分只能被硬生生切掉。这个可选阶段正是补这个缺口的:它把超预算的文本发给你自选的模型做事实性摘要(保留 ID、路径、URL、数字和错误信息),在结果后附上指向完整原文的 `read_more` 句柄,截断仍然作为最后的兜底保留。它**默认关闭**,且需要在两个独立层面显式启用:顶层 `llm` 配置块*和*压缩策略里的 `llmSummary: true`。任何 OpenAI 兼容的 `/chat/completions` 端点都可以用——既可以选一个服务商预设,也可以用 `baseUrl` 指向任意端点。
+
+```json
+{
+  "llm": {
+    "provider": "openrouter",
+    "model": "your-model-name"
+  },
+  "compression": {
+    "default": { "llmSummary": true }
+  }
+}
+```
+
+`provider` 是一个简写,展开为预设的基础 URL 加一个约定俗成的 API 密钥环境变量:
+
+| 服务商 | 基础 URL | 密钥环境变量 |
+| --- | --- | --- |
+| `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` |
+| `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| `orcarouter` | `https://api.orcarouter.ai/v1` | `ORCAROUTER_API_KEY` |
+| `deepseek` | `https://api.deepseek.com/v1` | `DEEPSEEK_API_KEY` |
+
+其他任意 OpenAI 兼容端点改用 `baseUrl`(此时 `apiKey` 必填):
 
 ```json
 {
@@ -218,26 +241,28 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 
 | 字段 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- |
-| `baseUrl` | string | *(必填)* | 任意 OpenAI 兼容端点的基础 URL;本阶段会 POST 到 `<baseUrl>/chat/completions`。 |
-| `apiKey` | string | *(必填)* | 以 `Authorization: Bearer ...` 发送。请使用 `${ENV_VAR}` 环境变量展开——永远不要把明文密钥写进配置文件。 |
+| `provider` | string | *(无)* | 上表中的某个预设名。`provider` 和 `baseUrl` 二选一必填;两者都设置时,显式的 `baseUrl` 优先(并给出警告)。 |
+| `baseUrl` | string | *(来自预设)* | 任意 OpenAI 兼容端点的基础 URL;本阶段会 POST 到 `<baseUrl>/chat/completions`。未设置 `provider` 时必填。 |
+| `apiKey` | string | *(来自预设环境变量)* | 以 `Authorization: Bearer ...` 发送。设置了 `provider` 时,默认读取该预设的密钥环境变量;显式设置的值(请用 `${ENV_VAR}` 展开——永远不要写明文密钥)会覆盖它。只用 `baseUrl` 时必填。 |
 | `model` | string | *(必填)* | 原样传给端点的模型名。 |
 | `timeoutMs` | number | `20000` | 超过此时长中止请求;超时后本阶段直接跳过。 |
 | `maxInputChars` | number | `120000` | 发给 API 的文本从头部截断到此字符数(硬性绝对上限 400,000,不受配置影响——成本保护)。 |
 
-[OrcaRouter](https://orcarouter.ai) 配置示例——搭配免费模型效果很好:
+[OrcaRouter](https://orcarouter.ai) 配置示例——搭配免费模型效果很好(`orcarouter/free` 是他们按难度路由的免费档;API 密钥从 `ORCAROUTER_API_KEY` 读取):
 
 ```json
 {
   "llm": {
-    "baseUrl": "https://api.orcarouter.ai/v1",
-    "apiKey": "${ORCA_KEY}",
-    "model": "meta-llama/llama-3.3-70b-instruct:free"
+    "provider": "orcarouter",
+    "model": "orcarouter/free"
   },
   "compression": {
     "default": { "llmSummary": true }
   }
 }
 ```
+
+可直接运行的完整示例:[`examples/config.llm-orcarouter.json`](examples/config.llm-orcarouter.json) 和 [`examples/config.llm-generic.json`](examples/config.llm-generic.json)。
 
 **故障模式**:端点宕机、无法连通、超时或返回任何格式不对的内容时,本阶段会静默跳过,输出回退到确定性截断——端点不可用永远不会弄坏你的工具调用。
 
