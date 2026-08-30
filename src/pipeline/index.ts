@@ -60,14 +60,14 @@ function rebuildContent(content: ContentBlock[], firstTextIndex: number, newText
   return rebuilt;
 }
 
-export function runPipeline(
+export async function runPipeline(
   result: CallToolResult,
   policy: CompressionPolicy,
   store: ArtifactStore,
   ctx: { server: string; tool: string },
   logger: Logger,
   stages: PipelineStage[] = DEFAULT_STAGES
-): { result: CallToolResult; stats: CallStats } {
+): Promise<{ result: CallToolResult; stats: CallStats }> {
   const content = (result.content ?? []) as ContentBlock[];
   const { text: originalText, firstTextIndex } = extractText(content);
   const charsBefore = originalText.length;
@@ -116,7 +116,7 @@ export function runPipeline(
 
   try {
     for (const stage of stages) {
-      const out = stage.apply(current, policy, store, { server: ctx.server, tool: ctx.tool, fullHandle });
+      const out = await stage.apply(current, policy, store, { server: ctx.server, tool: ctx.tool, fullHandle });
       if (out.applied) {
         stagesApplied.push(stage.name);
       }
@@ -125,7 +125,7 @@ export function runPipeline(
   } catch (err) {
     const message = err instanceof Error ? (err.stack ?? err.message) : String(err);
     logger.error(`pipeline stage threw, falling back to truncate-only: ${message}`);
-    const fallback = truncateStage.apply(
+    const fallback = await truncateStage.apply(
       { text: originalText },
       policy,
       store,

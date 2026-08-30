@@ -7,7 +7,9 @@ import type { Logger } from '../log.js';
 import type { Config, CallStats } from '../types.js';
 import type { ArtifactStore } from '../artifacts.js';
 import { resolvePolicy } from '../config.js';
-import { runPipeline } from '../pipeline/index.js';
+import { runPipeline, DEFAULT_STAGES } from '../pipeline/index.js';
+import { truncateStage } from '../pipeline/truncate.js';
+import { createLlmSummaryStage } from '../pipeline/llm-summary.js';
 import { checkToolPolicy } from '../tool-policy.js';
 import {
   LIST_TOOL_CATEGORIES,
@@ -70,6 +72,20 @@ export function createGateway(deps: GatewayDeps): Gateway {
   const { manager, logger, config, store, onCallStats } = deps;
   const server = new McpServer({ name: 'context-firewall', version: '0.3.0' });
   const registry = manager.getRegistry();
+
+  // The llm summary stage only exists in the stage list when config.llm is configured (see
+  // hard constraint: no llm block => no new code path executes, no network call possible).
+  // Inserted immediately before truncateStage so it gets first crack at over-budget output.
+  let pipelineStages = DEFAULT_STAGES;
+  if (config.llm) {
+    const llmStage = createLlmSummaryStage(config.llm);
+    const truncateIndex = DEFAULT_STAGES.indexOf(truncateStage);
+    pipelineStages = [
+      ...DEFAULT_STAGES.slice(0, truncateIndex),
+      llmStage,
+      ...DEFAULT_STAGES.slice(truncateIndex),
+    ];
+  }
 
   const listToolCategoriesTool: RegisteredTool = server.registerTool(
     LIST_TOOL_CATEGORIES.name,
@@ -142,12 +158,13 @@ export function createGateway(deps: GatewayDeps): Gateway {
       }
 
       const policy = resolvePolicy(config, serverName, tool);
-      const { result: finalResult, stats } = runPipeline(
+      const { result: finalResult, stats } = await runPipeline(
         result,
         policy,
         store,
         { server: serverName, tool },
-        logger
+        logger,
+        pipelineStages
       );
       onCallStats?.(stats);
       return finalResult;

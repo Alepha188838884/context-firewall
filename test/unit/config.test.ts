@@ -155,6 +155,77 @@ describe('loadConfig', () => {
 
     expect(() => loadConfig(path)).toThrow();
   });
+
+  it('throws when compression.default.llmSummary is true but no top-level llm block is configured', () => {
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        compression: { default: { llmSummary: true } },
+      })
+    );
+
+    expect(() => loadConfig(path)).toThrow(/llmSummary is enabled but no top-level "llm" block/);
+  });
+
+  it('throws when a perServer policy has llmSummary true but no top-level llm block is configured', () => {
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        compression: { perServer: { filesystem: { llmSummary: true } } },
+      })
+    );
+
+    expect(() => loadConfig(path)).toThrow(/llmSummary is enabled but no top-level "llm" block/);
+  });
+
+  it('throws when a perTool policy has llmSummary true but no top-level llm block is configured', () => {
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        compression: { perTool: { 'filesystem/read_file': { llmSummary: true } } },
+      })
+    );
+
+    expect(() => loadConfig(path)).toThrow(/llmSummary is enabled but no top-level "llm" block/);
+  });
+
+  it('loads fine when llmSummary is true and a top-level llm block is configured, and resolvePolicy reflects it', () => {
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        compression: { default: { llmSummary: true } },
+        llm: { baseUrl: 'https://api.example.com', apiKey: 'test-key', model: 'test-model' },
+      })
+    );
+
+    const config = loadConfig(path);
+    expect(config.llm).toEqual({
+      baseUrl: 'https://api.example.com',
+      apiKey: 'test-key',
+      model: 'test-model',
+    });
+    const policy = resolvePolicy(config, 'filesystem', 'read_file');
+    expect(policy.llmSummary).toBe(true);
+  });
+
+  it('expands ${ENV_VAR} references in llm.apiKey', () => {
+    vi.stubEnv('MY_LLM_KEY', 'secret-llm-key');
+    const path = writeTempConfig(
+      JSON.stringify({
+        downstreams: { filesystem: { command: 'npx' } },
+        llm: { baseUrl: 'https://api.example.com', apiKey: '${MY_LLM_KEY}', model: 'test-model' },
+      })
+    );
+
+    const config = loadConfig(path);
+    expect(config.llm?.apiKey).toBe('secret-llm-key');
+  });
+});
+
+describe('DEFAULT_POLICY', () => {
+  it('has llmSummary: false', () => {
+    expect(DEFAULT_POLICY.llmSummary).toBe(false);
+  });
 });
 
 describe('resolvePolicy', () => {

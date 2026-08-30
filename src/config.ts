@@ -25,6 +25,15 @@ const compressionPolicyPartialSchema = z.object({
   stripBase64: z.boolean().optional(),
   jsonSummary: z.boolean().optional(),
   bypass: z.boolean().optional(),
+  llmSummary: z.boolean().optional(),
+});
+
+const llmConfigSchema = z.object({
+  baseUrl: z.string().url(),
+  apiKey: z.string(),
+  model: z.string(),
+  timeoutMs: z.number().positive().optional(),
+  maxInputChars: z.number().positive().optional(),
 });
 
 const configSchema = z.object({
@@ -47,6 +56,7 @@ const configSchema = z.object({
     })
     .optional(),
   callToolTimeoutMs: z.number().positive().optional(),
+  llm: llmConfigSchema.optional(),
 });
 
 export const DEFAULT_POLICY: CompressionPolicy = {
@@ -55,6 +65,7 @@ export const DEFAULT_POLICY: CompressionPolicy = {
   stripBase64: true,
   jsonSummary: true,
   bypass: false,
+  llmSummary: false,
 };
 
 const ENV_VAR_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -102,7 +113,23 @@ export function loadConfig(path: string): Config {
     throw new Error(`Invalid config file "${path}": ${details}`);
   }
 
-  return result.data as Config;
+  const config = result.data as Config;
+
+  if (!config.llm) {
+    const perServerLlmSummary = Object.values(config.compression?.perServer ?? {}).some(
+      (p) => p.llmSummary === true
+    );
+    const perToolLlmSummary = Object.values(config.compression?.perTool ?? {}).some(
+      (p) => p.llmSummary === true
+    );
+    if (config.compression?.default?.llmSummary === true || perServerLlmSummary || perToolLlmSummary) {
+      throw new Error(
+        `Invalid config file "${path}": llmSummary is enabled but no top-level "llm" block is configured`
+      );
+    }
+  }
+
+  return config;
 }
 
 export function resolvePolicy(config: Config, server: string, tool: string): CompressionPolicy {

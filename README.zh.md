@@ -153,6 +153,7 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
       "htmlToMarkdown": true,
       "stripBase64": true,
       "jsonSummary": true,
+      "llmSummary": false,
       "bypass": false
     },
     "perServer": { "github": { "maxOutputTokens": 4000 } },
@@ -167,6 +168,7 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 | `htmlToMarkdown` | boolean | `true` | 将识别出的 HTML 标记转换为 Markdown。 |
 | `stripBase64` | boolean | `true` | 把 base64 大块(data URI 和裸块)替换为可用 `read_more` 取回的句柄。 |
 | `jsonSummary` | boolean | `true` | 折叠同构 JSON 数组、裁剪超长字符串字段,同时保持结果仍是合法 JSON。 |
+| `llmSummary` | boolean | `false` | 用你自选的 LLM 对超预算输出做语义摘要。需要配合顶层 `llm` 配置块——见 [LLM 语义摘要(可选启用)](#llm-语义摘要可选启用)。 |
 | `bypass` | boolean | `false` | 对该 server/tool 完全跳过压缩流水线——输出原样透传。 |
 
 ### `report`
@@ -195,7 +197,55 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 
 ## 工作原理
 
-客户端先调用 `list_tool_categories()` 看看连接了哪些下游、大致有什么能力,再用 `search_tools(query)` 为候选工具拉取完整的输入 schema,然后用 `invoke_tool(server, tool, args)` 实际调用某个工具(返回前会经过压缩),最后可以用 `read_more(handle, offset, length)` 分页取回被压缩掉的部分。压缩一旦触发,顺序永远固定:base64 剥离 → HTML 转 Markdown → JSON 结构摘要 → 截断到预算内。安全相关的输出(错误信息、权限/警告/确认类提示)绝不会被静默压缩——它们会直接透传,仅在超过 50,000 字符时做硬性截断,防止单次异常的报错洪流把调用方的上下文撑爆。
+客户端先调用 `list_tool_categories()` 看看连接了哪些下游、大致有什么能力,再用 `search_tools(query)` 为候选工具拉取完整的输入 schema,然后用 `invoke_tool(server, tool, args)` 实际调用某个工具(返回前会经过压缩),最后可以用 `read_more(handle, offset, length)` 分页取回被压缩掉的部分。压缩一旦触发,顺序永远固定:base64 剥离 → HTML 转 Markdown → JSON 结构摘要 → 截断到预算内(若启用了下面的可选 LLM 语义摘要阶段,它会紧挨在截断之前运行)。安全相关的输出(错误信息、权限/警告/确认类提示)绝不会被静默压缩——它们会直接透传,仅在超过 50,000 字符时做硬性截断,防止单次异常的报错洪流把调用方的上下文撑爆。
+
+## LLM 语义摘要(可选启用)
+
+确定性流水线能剥离标记、折叠重复结构、做截断——但它无法对一段很长的自然语言输出(日志文件、文章、报告)做*语义级*压缩:确定性阶段跑完之后,仍然超预算的部分只能被硬生生切掉。这个可选阶段正是补这个缺口的:它把超预算的文本发给你自选的模型做事实性摘要(保留 ID、路径、URL、数字和错误信息),在结果后附上指向完整原文的 `read_more` 句柄,截断仍然作为最后的兜底保留。它**默认关闭**,且需要在两个独立层面显式启用:顶层 `llm` 配置块*和*压缩策略里的 `llmSummary: true`。任何 OpenAI 兼容的 `/chat/completions` 端点都可以用。
+
+```json
+{
+  "llm": {
+    "baseUrl": "https://api.your-provider.example/v1",
+    "apiKey": "${LLM_API_KEY}",
+    "model": "your-model-name"
+  },
+  "compression": {
+    "default": { "llmSummary": true }
+  }
+}
+```
+
+| 字段 | 类型 | 默认值 | 含义 |
+| --- | --- | --- | --- |
+| `baseUrl` | string | *(必填)* | 任意 OpenAI 兼容端点的基础 URL;本阶段会 POST 到 `<baseUrl>/chat/completions`。 |
+| `apiKey` | string | *(必填)* | 以 `Authorization: Bearer ...` 发送。请使用 `${ENV_VAR}` 环境变量展开——永远不要把明文密钥写进配置文件。 |
+| `model` | string | *(必填)* | 原样传给端点的模型名。 |
+| `timeoutMs` | number | `20000` | 超过此时长中止请求;超时后本阶段直接跳过。 |
+| `maxInputChars` | number | `120000` | 发给 API 的文本从头部截断到此字符数(硬性绝对上限 400,000,不受配置影响——成本保护)。 |
+
+[OrcaRouter](https://orcarouter.ai) 配置示例——搭配免费模型效果很好:
+
+```json
+{
+  "llm": {
+    "baseUrl": "https://api.orcarouter.ai/v1",
+    "apiKey": "${ORCA_KEY}",
+    "model": "meta-llama/llama-3.3-70b-instruct:free"
+  },
+  "compression": {
+    "default": { "llmSummary": true }
+  }
+}
+```
+
+**故障模式**:端点宕机、无法连通、超时或返回任何格式不对的内容时,本阶段会静默跳过,输出回退到确定性截断——端点不可用永远不会弄坏你的工具调用。
+
+**隐私**:启用后,超预算且非安全敏感的工具输出会被发送到你配置的那个端点——除此之外,不发给任何其他地方。安全敏感的输出(错误、权限拒绝、警告、确认类提示)在到达本阶段之前就已绕过压缩流水线,永远不会被发送。如果把工具输出内容发给该端点对你的数据来说不可接受,请不要启用。
+
+### 披露声明
+
+Context Firewall 参与了 OrcaRouter Open Source Program:如果你选择 OrcaRouter 作为端点,本项目会获得由此产生的使用收入的 5%。这不会改变你的价格,完全是可选的,任何 OpenAI 兼容的服务商都能以完全相同的方式工作。
 
 ## 定位说明
 
@@ -203,12 +253,13 @@ Context Firewall 与 Anthropic 官方的 Tool Search Tool 是**互补**关系,�
 
 ## 关于 token 计数的说明
 
-本项目中的每一个 token 计数(截断预算、session 报告)都是按 `字符数 / 3.5` 估算得出的,从不是针对具体模型的精确计数。项目中没有任何代码路径会把你的工具输出内容发送给外部 API 来获取精确计数——那样会与下面的安全立场相冲突。正因如此,session 报告始终标注为"(estimated / 估算值)"。
+本项目中的每一个 token 计数(截断预算、session 报告)都是按 `字符数 / 3.5` 估算得出的,从不是针对具体模型的精确计数。**默认情况下**,项目中没有任何代码路径会把你的工具输出内容发送给外部 API——token 计数不会,其他任何用途也不会。如果你显式启用了可选的 [LLM 语义摘要阶段](#llm-语义摘要可选启用),超预算的输出会被发送到**你自己**配置的那个端点——除此之外,不发给任何其他地方;token 计数无论如何都留在本地。正因如此,session 报告始终标注为"(estimated / 估算值)"。
 
 ## 安全性
 
 - 工具参数和输出内容永远不会写入日志或 session 报告——只记录 server/tool 名称以及字符/token 计数。
 - 安全相关的输出(错误、权限拒绝、警告、确认类提示)绝不会被静默压缩。
+- 默认情况下,工具输出内容不会离开你的机器(你自己配置的下游 server 除外)。可选的 [LLM 语义摘要阶段](#llm-语义摘要可选启用)是唯一可能把它发往别处的代码路径,它默认关闭,且安全敏感的输出永远不会到达它。
 - 下游工具描述被视为不可信输入,只会被展示,永远不会被执行。
 - 下游工具描述会原样透传、不做任何消毒处理——`search_tools` 不会剔除或过滤恶意下游可能植入的提示注入文本。信任边界在于你选择挂载哪些下游 server,而不是这个网关本身。
 - 渐进式披露有一个真实的权衡:工具描述是按需到达的——就在调用方模型主动调用 `search_tools` 查询的那一刻,发生在会话中途;而这恰恰也是模型对嵌入指令警惕性最低的时刻,相比之下,所有工具在会话开始时就一次性摆出来反而更容易被审视。从 v0.3.0 起,我们用两种方式缓解这个问题:`search_tools` 的结果会被包在 `<untrusted-tool-descriptions nonce="...">...</untrusted-tool-descriptions nonce="...">` 定界标签里,标签携带一个进程启动时生成一次的随机 nonce(`crypto.randomBytes(8).toString('hex')`,在整个进程生命周期内保持不变),并附带提示告诉模型:只有携带相同 nonce 的闭合标签才代表这个区块真正结束;同时 CLI 会在启动时向 stderr 打印一份人类可读的 digest(server 名称、工具数量、主要分类),让操作者一眼就能看到实际接入了什么。这个 nonce 专门用来防御一种字面绕过:下游在自己的 description 里写死一段 `</untrusted-tool-descriptions>` 文本,后面跟上伪造的"可信系统"指令——由于下游无法预知 nonce 的值,它伪造不出匹配的闭合标签。**残留风险**:这仍然只是文本层面的约定,不是沙箱——它依赖调用方模型真的去读那句提示并按 nonce 匹配来判断真伪;如果模型完全无视这套框架,这个机制就起不到任何保护作用。这两个缓解手段都不会对描述内容本身做消毒——见上一条。按本项目统一的 chars/3.5 估算口径,定界框架现在大约会给每次 `search_tools` 调用增加 80-85 个 token 的开销(约 289 个字符)。

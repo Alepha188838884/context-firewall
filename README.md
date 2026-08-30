@@ -153,6 +153,7 @@ Policy resolution order is `default` < `perServer` < `perTool` (later overrides 
       "htmlToMarkdown": true,
       "stripBase64": true,
       "jsonSummary": true,
+      "llmSummary": false,
       "bypass": false
     },
     "perServer": { "github": { "maxOutputTokens": 4000 } },
@@ -167,6 +168,7 @@ Policy resolution order is `default` < `perServer` < `perTool` (later overrides 
 | `htmlToMarkdown` | boolean | `true` | Convert detected HTML markup to Markdown. |
 | `stripBase64` | boolean | `true` | Replace base64 blobs (data URIs and bare blocks) with a `read_more` handle. |
 | `jsonSummary` | boolean | `true` | Collapse homogeneous JSON arrays and trim long string fields, keeping valid JSON. |
+| `llmSummary` | boolean | `false` | Semantically summarize over-budget outputs with an LLM of your choice. Requires the top-level `llm` block - see [LLM summarization (opt-in)](#llm-summarization-opt-in). |
 | `bypass` | boolean | `false` | Skip the whole pipeline for this server/tool - output passes through untouched. |
 
 ### `report`
@@ -195,7 +197,55 @@ Top-level (not nested under `compression`). Per-`invoke_tool` timeout in millise
 
 ## How it works
 
-The client calls `list_tool_categories()` to see what's connected and what it's roughly capable of, `search_tools(query)` to pull the full input schema for candidate tools, `invoke_tool(server, tool, args)` to actually run one (compressed on the way back), and `read_more(handle, offset, length)` to page through anything that got compressed. Compression, when it runs, always applies in the same order: strip base64 → HTML to Markdown → JSON structure summary → truncate to budget. Security-relevant outputs (errors, permission/warning/confirmation messages) are never silently compressed - they pass straight through, only hard-capped at 50,000 characters to prevent a single runaway error dump from blowing out the caller's context.
+The client calls `list_tool_categories()` to see what's connected and what it's roughly capable of, `search_tools(query)` to pull the full input schema for candidate tools, `invoke_tool(server, tool, args)` to actually run one (compressed on the way back), and `read_more(handle, offset, length)` to page through anything that got compressed. Compression, when it runs, always applies in the same order: strip base64 → HTML to Markdown → JSON structure summary → truncate to budget (if the opt-in LLM summarization stage below is enabled, it runs right before truncation). Security-relevant outputs (errors, permission/warning/confirmation messages) are never silently compressed - they pass straight through, only hard-capped at 50,000 characters to prevent a single runaway error dump from blowing out the caller's context.
+
+## LLM summarization (opt-in)
+
+The deterministic pipeline can strip markup, collapse repetitive structure, and truncate - but it cannot *semantically* compress a long natural-language output (a log file, an article, a report): once the deterministic stages are done, anything still over budget just gets cut off. This optional stage fills that gap: it sends the over-budget text to a model of your choice for a factual summary (preserving IDs, paths, URLs, numbers, and error messages), appends a `read_more` pointer to the untouched full original, and leaves truncation in place as the final backstop. It is **off by default** and requires explicit opt-in at two separate layers: a top-level `llm` block *and* `llmSummary: true` in a compression policy. Any OpenAI-compatible `/chat/completions` endpoint works.
+
+```json
+{
+  "llm": {
+    "baseUrl": "https://api.your-provider.example/v1",
+    "apiKey": "${LLM_API_KEY}",
+    "model": "your-model-name"
+  },
+  "compression": {
+    "default": { "llmSummary": true }
+  }
+}
+```
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `baseUrl` | string | *(required)* | Base URL of any OpenAI-compatible endpoint; the stage POSTs to `<baseUrl>/chat/completions`. |
+| `apiKey` | string | *(required)* | Sent as `Authorization: Bearer ...`. Use `${ENV_VAR}` expansion - never put a literal key in the config file. |
+| `model` | string | *(required)* | Model name passed through to the endpoint verbatim. |
+| `timeoutMs` | number | `20000` | Abort the request after this long; on timeout the stage no-ops. |
+| `maxInputChars` | number | `120000` | Head-truncate the text sent to the API to this many chars (hard absolute cap: 400,000, regardless of config - cost protection). |
+
+Example with [OrcaRouter](https://orcarouter.ai) - works well with free models:
+
+```json
+{
+  "llm": {
+    "baseUrl": "https://api.orcarouter.ai/v1",
+    "apiKey": "${ORCA_KEY}",
+    "model": "meta-llama/llama-3.3-70b-instruct:free"
+  },
+  "compression": {
+    "default": { "llmSummary": true }
+  }
+}
+```
+
+**Failure mode**: if the endpoint is down, unreachable, times out, or returns anything malformed, the stage silently no-ops and the output falls back to deterministic truncation - an unavailable endpoint never breaks your tools.
+
+**Privacy**: enabling this sends over-budget, non-security-sensitive tool outputs to the endpoint you configure - and nothing else, nowhere else. Security-sensitive outputs (errors, permission denials, warnings, confirmations) bypass the compression pipeline before this stage exists and are never sent. Don't enable this if sending tool output content to that endpoint is not acceptable for your data.
+
+### Disclosure
+
+Context Firewall participates in the OrcaRouter Open Source Program: if you choose OrcaRouter as your endpoint, this project receives 5% of the resulting usage revenue. This does not change your pricing, is entirely optional, and any OpenAI-compatible provider works identically.
 
 ## Positioning
 
@@ -203,12 +253,13 @@ Context Firewall **complements** Anthropic's Tool Search Tool, it doesn't compet
 
 ## A note on token counts
 
-Every token count in this project (truncation budgets, the session report) is estimated as `chars / 3.5`, never an exact model-specific count. There is no code path that sends your tool output content to an external API to get an exact count - that would conflict with the safety posture below. The session report is always labeled "(estimated)" for this reason.
+Every token count in this project (truncation budgets, the session report) is estimated as `chars / 3.5`, never an exact model-specific count. By default, there is no code path that sends your tool output content to an external API - not for token counting, not for anything else. If you explicitly enable the optional [LLM summarization stage](#llm-summarization-opt-in), over-budget outputs are sent to the endpoint **you** configure - and nothing else, nowhere else; token counting stays local either way. The session report is always labeled "(estimated)" for this reason.
 
 ## Safety
 
 - Tool arguments and output content are never written to logs or the session report - only server/tool names and character/token counts.
 - Security-relevant outputs (errors, permission denials, warnings, confirmations) are never silently compressed.
+- By default, tool output content never leaves your machine (beyond the downstream servers you configured). The opt-in [LLM summarization stage](#llm-summarization-opt-in) is the only code path that can send it anywhere else, it is off by default, and security-sensitive outputs never reach it.
 - Downstream tool descriptions are treated as untrusted input and only ever displayed, never executed.
 - Downstream tool descriptions are passed through verbatim, unsanitized - `search_tools` does not strip or filter prompt-injection text a malicious downstream might put there. The trust boundary is which downstream servers you choose to configure, not this gateway.
 - Progressive disclosure has a real tradeoff: tool descriptions arrive on demand, mid-session, right when the calling model actively asks for them via `search_tools` - which is also when a model is least likely to scrutinize an embedded instruction, compared to tools all being presented up front at session start. As of v0.3.0 this is mitigated two ways: `search_tools` results are wrapped in `<untrusted-tool-descriptions nonce="...">...</untrusted-tool-descriptions nonce="...">` delimiters carrying a random nonce generated once per process at startup (`crypto.randomBytes(8).toString('hex')`, fixed for the process's whole lifetime), with a note telling the model that only a closing tag carrying the matching nonce ends the block; and the CLI prints a human-readable digest to stderr on startup (server names, tool counts, top categories) so an operator can see at a glance what actually got connected. The nonce specifically defeats the literal bypass where a downstream embeds its own `</untrusted-tool-descriptions>` string followed by forged "trusted system" instructions in its description - it can't predict the nonce, so it can't forge a matching closing tag. **Residual risk**: this is still a text-level convention, not a sandbox - it depends on the calling model actually reading the note and honoring the nonce match; nothing stops a model from ignoring the framing altogether. Neither mitigation sanitizes the description content itself - see the point above. The delimiter framing now costs about 80-85 tokens per `search_tools` call (~289 characters, at this project's chars/3.5 estimate).

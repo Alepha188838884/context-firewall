@@ -6,6 +6,15 @@ export interface CompressionPolicy {
   stripBase64: boolean;
   jsonSummary: boolean;
   bypass: boolean;
+  llmSummary: boolean;
+}
+
+export interface LlmConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  timeoutMs?: number;
+  maxInputChars?: number;
 }
 
 export interface StdioDownstreamConfig {
@@ -36,6 +45,7 @@ export interface Config {
     enabled?: boolean;
     markdownPath?: string;
   };
+  llm?: LlmConfig;
   /**
    * Per-request timeout (ms) passed to the downstream MCP SDK client for callTool. Guards
    * against a hung downstream blocking invoke_tool. Defaults to the SDK's own default
@@ -55,7 +65,7 @@ export interface PipelineStage {
     policy: CompressionPolicy,
     store: ArtifactStore,
     ctx: { server: string; tool: string; fullHandle: string }
-  ): { text: string; applied: boolean };
+  ): { text: string; applied: boolean } | Promise<{ text: string; applied: boolean }>;
 }
 
 export interface CallStats {

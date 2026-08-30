@@ -27,13 +27,13 @@ function firstText(result: CallToolResult): string {
 const ctx = { server: 'srv', tool: 'tool' };
 
 describe('runPipeline', () => {
-  it('bypasses small outputs unchanged, marking bypassed: small', () => {
+  it('bypasses small outputs unchanged, marking bypassed: small', async () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
     const result = textResult('short output');
     const policy = policyWithBudget(2000); // budget = 7000 chars, way over 13 chars
 
-    const { result: out, stats } = runPipeline(result, policy, store, ctx, logger);
+    const { result: out, stats } = await runPipeline(result, policy, store, ctx, logger);
 
     expect(out).toBe(result); // returned unchanged
     expect(stats.bypassed).toBe('small');
@@ -42,7 +42,7 @@ describe('runPipeline', () => {
     expect(stats.stagesApplied).toEqual([]);
   });
 
-  it('truncates output over budget, appending a read_more annotation with a valid handle and offset', () => {
+  it('truncates output over budget, appending a read_more annotation with a valid handle and offset', async () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
     // A single-case run of one repeated char - since the A3 fix to stripBase64Stage requires
@@ -52,7 +52,7 @@ describe('runPipeline', () => {
     const result = textResult(longText);
     const policy = policyWithBudget(100); // budget = 350 chars
 
-    const { result: out, stats } = runPipeline(result, policy, store, ctx, logger);
+    const { result: out, stats } = await runPipeline(result, policy, store, ctx, logger);
 
     expect(stats.bypassed).toBeNull();
     expect(stats.stagesApplied).toEqual(['truncate']);
@@ -73,41 +73,41 @@ describe('runPipeline', () => {
     expect(artifact?.data.length).toBe(10000);
   });
 
-  it('does not compress isError results (safety bypass), even if short enough to otherwise pass through', () => {
+  it('does not compress isError results (safety bypass), even if short enough to otherwise pass through', async () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
     const result = textResult('Permission denied for this operation.', true);
     const policy = policyWithBudget(2000);
 
-    const { result: out, stats } = runPipeline(result, policy, store, ctx, logger);
+    const { result: out, stats } = await runPipeline(result, policy, store, ctx, logger);
 
     expect(out).toBe(result);
     expect(stats.bypassed).toBe('security');
     expect(stats.fullHandle).toBeUndefined();
   });
 
-  it('does not compress security-relevant text under 50k chars, even over the token budget', () => {
+  it('does not compress security-relevant text under 50k chars, even over the token budget', async () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
     const text = `Warning: something failed. ${'x'.repeat(5000)}`;
     const result = textResult(text);
     const policy = policyWithBudget(10); // budget = 35 chars, far under text length
 
-    const { result: out, stats } = runPipeline(result, policy, store, ctx, logger);
+    const { result: out, stats } = await runPipeline(result, policy, store, ctx, logger);
 
     expect(out).toBe(result);
     expect(firstText(out)).toBe(text);
     expect(stats.bypassed).toBe('security');
   });
 
-  it('still explicitly truncates security-relevant text over 50k chars, with a distinct annotation and a working handle', () => {
+  it('still explicitly truncates security-relevant text over 50k chars, with a distinct annotation and a working handle', async () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
     const text = `Error: request failed. ${'x'.repeat(60000)}`;
     const result = textResult(text);
     const policy = policyWithBudget(100); // budget = 350 chars
 
-    const { result: out, stats } = runPipeline(result, policy, store, ctx, logger);
+    const { result: out, stats } = await runPipeline(result, policy, store, ctx, logger);
 
     expect(stats.bypassed).toBe('security');
     expect(stats.fullHandle).toBeDefined();
@@ -122,14 +122,14 @@ describe('runPipeline', () => {
     expect(artifact?.data).toBe(text);
   });
 
-  it('passes policy.bypass straight through unchanged, regardless of size', () => {
+  it('passes policy.bypass straight through unchanged, regardless of size', async () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
     const longText = 'y'.repeat(100000);
     const result = textResult(longText);
     const policy = policyWithBudget(50, { bypass: true });
 
-    const { result: out, stats } = runPipeline(result, policy, store, ctx, logger);
+    const { result: out, stats } = await runPipeline(result, policy, store, ctx, logger);
 
     expect(out).toBe(result);
     expect(firstText(out)).toBe(longText);
@@ -137,7 +137,7 @@ describe('runPipeline', () => {
     expect(stats.charsAfter).toBe(100000);
   });
 
-  it('falls back to truncate-only and does not lose data when a stage throws', () => {
+  it('falls back to truncate-only and does not lose data when a stage throws', async () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
     const longText = 'z'.repeat(10000);
@@ -151,7 +151,7 @@ describe('runPipeline', () => {
       },
     };
 
-    const { result: out, stats } = runPipeline(result, policy, store, ctx, logger, [throwingStage]);
+    const { result: out, stats } = await runPipeline(result, policy, store, ctx, logger, [throwingStage]);
 
     expect(logger.error).toHaveBeenCalledTimes(1);
     const text = firstText(out);
@@ -177,13 +177,13 @@ describe('runPipeline', () => {
       return `<!DOCTYPE html>\n<html>\n<body>\n<nav class="main-nav"><ul>${navItems}</ul></nav>\n<div class="content"><h1>Main Heading</h1>${paragraphs}</div>\n</body>\n</html>`;
     }
 
-    it('appends a fallback annotation when htmlToMarkdown alone brings text under budget (truncate never runs)', () => {
+    it('appends a fallback annotation when htmlToMarkdown alone brings text under budget (truncate never runs)', async () => {
       const store = new ArtifactStore();
       const logger = mockLogger();
       const html = bigHtmlFixture();
       const policy = policyWithBudget(2500); // budget = 8750 chars
 
-      const { result: out, stats } = runPipeline(textResult(html), policy, store, ctx, logger);
+      const { result: out, stats } = await runPipeline(textResult(html), policy, store, ctx, logger);
 
       expect(stats.bypassed).toBeNull();
       expect(stats.stagesApplied).toContain('htmlToMarkdown');
@@ -196,14 +196,14 @@ describe('runPipeline', () => {
       expect(store.get(stats.fullHandle as string)?.data).toBe(html);
     });
 
-    it('appends a fallback annotation when jsonSummary alone (long-string truncation, not array collapse) brings text under budget', () => {
+    it('appends a fallback annotation when jsonSummary alone (long-string truncation, not array collapse) brings text under budget', async () => {
       const store = new ArtifactStore();
       const logger = mockLogger();
       const original = { description: 'a'.repeat(3000), notes: 'b'.repeat(3000), details: 'c'.repeat(3000) };
       const text = JSON.stringify(original);
       const policy = policyWithBudget(1000); // budget = 3500 chars
 
-      const { result: out, stats } = runPipeline(textResult(text), policy, store, ctx, logger);
+      const { result: out, stats } = await runPipeline(textResult(text), policy, store, ctx, logger);
 
       expect(stats.bypassed).toBeNull();
       expect(stats.stagesApplied).toContain('jsonSummary');
@@ -216,14 +216,14 @@ describe('runPipeline', () => {
       expect(store.get(stats.fullHandle as string)?.data).toBe(text);
     });
 
-    it('appends a fallback annotation when stripBase64 alone brings text under budget, so the full original (not just the stripped blob) stays retrievable', () => {
+    it('appends a fallback annotation when stripBase64 alone brings text under budget, so the full original (not just the stripped blob) stays retrievable', async () => {
       const store = new ArtifactStore();
       const logger = mockLogger();
       const blob = Buffer.from(randomBytes(4000)).toString('base64');
       const text = `Result payload:\n${blob}\nEnd of payload.`;
       const policy = policyWithBudget(100); // budget = 350 chars
 
-      const { result: out, stats } = runPipeline(textResult(text), policy, store, ctx, logger);
+      const { result: out, stats } = await runPipeline(textResult(text), policy, store, ctx, logger);
 
       expect(stats.bypassed).toBeNull();
       expect(stats.stagesApplied).toEqual(['stripBase64']);
@@ -239,7 +239,7 @@ describe('runPipeline', () => {
     });
   });
 
-  it('leaves non-text content blocks untouched and in their original relative position', () => {
+  it('leaves non-text content blocks untouched and in their original relative position', async () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
     const longText = 'w'.repeat(10000);
@@ -251,7 +251,7 @@ describe('runPipeline', () => {
     };
     const policy = policyWithBudget(100);
 
-    const { result: out } = runPipeline(result, policy, store, ctx, logger);
+    const { result: out } = await runPipeline(result, policy, store, ctx, logger);
 
     expect(out.content[0]?.type).toBe('image');
     expect(out.content[1]?.type).toBe('text');
@@ -261,7 +261,7 @@ describe('runPipeline', () => {
   // array (github/list_issues-shaped) whose first item's title contains an ordinary word like
   // "failure" used to trip isSecuritySensitive's keyword scan and bypass compression entirely,
   // sending the caller a hard-truncated raw-JSON blob instead of a jsonSummary-compressed one.
-  it('regression (Finding 4): large JSON containing "failure" in the first 500 chars still runs full compression, not security bypass', () => {
+  it('regression (Finding 4): large JSON containing "failure" in the first 500 chars still runs full compression, not security bypass', async () => {
     const store = new ArtifactStore();
     const logger = mockLogger();
     const issues = Array.from({ length: 50 }, (_, i) => ({
@@ -275,7 +275,7 @@ describe('runPipeline', () => {
     expect(text.slice(0, 500)).toMatch(/failure/);
     const policy = policyWithBudget(2000); // budget = 7000 chars, well under the full payload
 
-    const { result: out, stats } = runPipeline(textResult(text), policy, store, ctx, logger);
+    const { result: out, stats } = await runPipeline(textResult(text), policy, store, ctx, logger);
 
     expect(stats.bypassed).toBeNull();
     expect(stats.stagesApplied).toContain('jsonSummary');
