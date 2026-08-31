@@ -989,3 +989,28 @@ row among four, never default/privileged.
   links to both example files. Disclosure subsection unchanged.
 - **Next (manual, Eric)**: push to GitHub, wait for visibility, then re-trigger the OrcaRouter
   application re-check ("我已经接入完成 —— 请复查"; 10-min cooldown between re-checks).
+
+## OrcaRouter re-check + git identity cleanup (2026-08-31)
+
+- **Pushed** `b7edf4c` (provider presets + examples) to origin/main.
+- **Re-check triggered** on the OrcaRouter Partner Dashboard
+  (orcarouter.ai/partner-dashboard, entry via built-with → "Apply with GitHub", GitHub OAuth
+  completes silently in Chrome). First click hit the 10-min cooldown ("we already have your
+  request"); second click after cooldown returned: "We could not scan your repository for the
+  integration — that is on our side, not yours. Your request is queued and a reviewer will
+  check by hand." → their scanner is broken on their end; now waiting on HUMAN review, no
+  point re-clicking. Check the dashboard's Integration row (currently "No provider entry
+  found") in a day or so.
+- **Dashboard facts**: program status footer already shows "approved — Your program is live";
+  commission 5%; repo Found on GitHub; ownership verified; **"Your commits: 0"** — because all
+  35 commits are authored with the old email from global ~/.gitconfig (visible via `git log`),
+  which is not linked to the GitHub account Alepha188838884. Program requires commits from the
+  applying account.
+- **Git identity fix (partial)**: global `user.email` switched to the new Gmail address
+  (user.name stays "Eric") — affects future commits only. Adding that email to the GitHub
+  account got as far as the add-email form; GitHub demanded sudo-mode re-auth (passkey) which
+  only Eric can do. **Pending (Eric)**: (1) complete the passkey prompt in the open
+  github.com/settings/emails tab, then the add can be resubmitted; (2) click the verification
+  link GitHub mails to the new address; (3) optionally also add + verify the old commit email
+  to retroactively attribute the existing 35 commits ("Your commits" flips to 35 — likely
+  matters for program approval).
