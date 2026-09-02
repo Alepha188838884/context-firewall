@@ -1014,3 +1014,77 @@ row among four, never default/privileged.
   link GitHub mails to the new address; (3) optionally also add + verify the old commit email
   to retroactively attribute the existing 35 commits ("Your commits" flips to 35 — likely
   matters for program approval).
+
+## Project-review sprint (2026-09-02)
+
+Full project review (code, README, repo hygiene, distribution, competitive landscape) triggered
+by "why only 2 stars". Verdict: not a code-quality problem — traffic ≈ 0 (repo views 3/14d in
+Aug, npm ~11-15/day = mostly mirrors), first-screen conversion weak, v0.4.0 built but never
+published, distribution stalled on user-side actions. Executed serially this session:
+
+1. **v0.4.0 release prep** — package.json + server.json bumped to 0.4.0 (`--version` reads
+   package.json dynamically, nothing else to touch). `npm publish --dry-run` verified (27 files,
+   38.7 kB). **`npm publish` and `gh release create v0.4.0` are PENDING — user must run them**
+   (publishing to public surfaces requires user's own auth/consent; release notes drafted, see
+   session summary). Until published, GitHub README documents v0.4.0 features npm doesn't have.
+2. **CI added** — `.github/workflows/ci.yml` (ubuntu, Node 22, npm ci → build → test). First run
+   failed: chaos suite's `pidsForTag` used `execSync('pgrep -f <tag>')`; on Linux the `/bin/sh -c`
+   wrapper's own cmdline contains the tag and can match itself (macOS sh exec-optimizes the
+   wrapper away, hence never seen locally). Fixed by replacing pgrep with a `ps -eo pid=,args=`
+   full-table scan filtered in JS (nothing self-matches — ps never receives the tag as an arg;
+   returns `{pid, args}` so failures print the offending cmdline). CI green since.
+3. **docs/BENCHMARKS.md** — public benchmark page extracted from this file (definition savings
+   with scaling table, stage-only vs end-to-end compression framing, latency, real-agent session,
+   soak). README benchmark links now point there instead of at this internal log.
+4. **Real report-card SVG** — `docs/assets/report-card.svg`, rendered from a REAL session's
+   shutdown card (filesystem+everything, 3 calls: wiki.html 249KB, npm-react-shape.json 255KB,
+   echo): 27 → 4 tools, ~3,227 def + ~140,164 output = ~143,391 tokens (~71.7% of 200K). Numbers
+   verbatim from stderr, not fabricated.
+5. **README first screen (both languages)** — badges row (npm/CI/license/Glama), headline
+   flipped to compression-first (tool collapse is being commoditized: hosts now do progressive
+   MCP tool disclosure natively — observed directly in Claude Code deferring mcp tools via
+   ToolSearch; output compression remains the differentiator), report-card image, Measured
+   results reordered compression-first, test count updated.
+6. **feat: main-content extraction (v0.4.0)** — new `src/pipeline/extract-main.ts` +
+   `src/domino.d.ts`, html.ts wired; `@mixmark-io/domino` promoted to a direct dependency (it's
+   turndown's own DOM impl — zero added install weight). Design after two maker/verifier rounds:
+   (a) strip only never-content (script/style/svg/noscript/iframe/template) doc-wide, THEN pick
+   root (longest `<article>` ≥500 chars → first `<main>` ≥500 → `[role=main]` ≥500); (b)
+   root-internal strip is root-type-dependent: article → nav/[role=navigation]/[aria-hidden]
+   only (its header/footer/aside are the article's own byline/tips — HTML5-spec pattern);
+   main/[role=main] → additionally header/footer (MediaWiki evidence: main>header is
+   titlebar + 24-language switcher chrome that re-ate the truncation window); (c) over-stripping
+   guard on BOTH root-internal and body-fallback paths: skip strip when it would remove text
+   below max(500, 20% of before) — fixes reviewer's blocking repro (all-content-in-<header>
+   page collapsed 738 → 21 chars with applied:true); (d) title whitespace collapsed before `# `
+   injection. **Perf findings (both fixed)**: reviewer found the new `topLevelOnly` dedup was
+   O(k²) — 20K aria-hidden icon spans (real icon-font pattern, 1.04MB) = 34.1s in that function
+   alone; rewritten as O(k) linear scan exploiting querySelectorAll's document order (verified
+   empirically for @mixmark-io/domino with a merged selector). Maker then found forward-order
+   `el.remove()` loops are O(n²) in domino (front-splice per removal) — removal now runs in
+   reverse document order. End-to-end on the 20K-span fixture: 45.9s → 147ms; perf regression
+   test asserts <3s. Real-page acceptance: bbc.com/news window content went from nav-links-only
+   (the P0-3 spot-check complaint) to ~15 real headline blocks; Wikipedia reaches
+   Background/Features prose, zero interlanguage links. BBC output byte-identical across perf
+   fixes. Tests: 236/236 (12 new), CI green.
+   - **Reviewer-noted non-blocking limitation** (future work): the guard judges the merged
+     selector's total removal in one shot, so a small unambiguous `<nav>` can survive when a
+     huge low-confidence `[aria-hidden]` block trips the guard. Acceptable-conservative (never
+     worse than pre-feature); fix direction: per-selector-tier guards.
+   - **Reviewer-noted pre-existing (NOT this diff)**: turndown itself is ~quadratic on
+     single-huge-flat-article HTML (~30s at 10MB) — the BENCHMARKS 10MB <600ms figure is for
+     multi-page-concatenated shape. Worth a size gate someday; unchanged by this work.
+7. **Docs synced** — README ×2 pipeline descriptions mention extraction; BENCHMARKS.md gained a
+   "Main-content extraction (v0.4.0)" before/after section; test counts 236 everywhere.
+
+**Verified fact (durable)**: `@mixmark-io/domino`'s `querySelectorAll` returns merged-selector
+results in strict document order (verified by pre-order-walk comparison script); its
+`element.remove()` splices the parent's children array — removing large flat sibling lists in
+forward order is O(n²), reverse order is O(n).
+
+**User-side actions pending (blocking further progress)**:
+- `npm publish` (0.4.0) + `gh release create v0.4.0` — commands/notes in session summary.
+- GitHub email verification (passkey prompt) so the 35+ commits attribute to the account
+  ("Your commits: 0" on OrcaRouter dashboard; commit avatars grey).
+- Fire the drafted Chinese articles (`promo-article.zh.md`, still intentionally uncommitted);
+  Discord engagement loop (the only channel that ever produced a star) idle since 08-03.

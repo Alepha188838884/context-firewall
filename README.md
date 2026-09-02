@@ -128,7 +128,7 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 | Cursor | config format documented, community testing welcome |
 | Cline | config format documented, community testing welcome |
 
-\* Verified via MCP protocol integration tests (224 automated tests, including full stdio protocol round-trips against real downstream servers, [run in CI on every push](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml)). Real-client reports welcome.
+\* Verified via MCP protocol integration tests (236 automated tests, including full stdio protocol round-trips against real downstream servers, [run in CI on every push](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml)). Real-client reports welcome.
 
 ## Configuration
 

@@ -128,7 +128,7 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 | Cursor | 配置格式已核实文档,欢迎社区实测反馈 |
 | Cline | 配置格式已核实文档,欢迎社区实测反馈 |
 
-\* 通过 MCP 协议集成测试验证(224 个自动化测试,含针对真实下游 server 的完整 stdio 协议往返,[每次 push 都在 CI 上运行](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml))。欢迎真实客户端使用反馈。
+\* 通过 MCP 协议集成测试验证(236 个自动化测试,含针对真实下游 server 的完整 stdio 协议往返,[每次 push 都在 CI 上运行](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml))。欢迎真实客户端使用反馈。
 
 ## 配置
 

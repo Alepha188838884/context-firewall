@@ -106,7 +106,7 @@ Session report: 28 → 4 tools, ~3,570 tokens definition savings, top-tools tabl
 
 - **30-minute soak** (2 downstreams, ~1 large-output call every 10 s + `read_more` + periodic `list_tool_categories`): 180 rounds, **0 errors**, RSS flat (84.5 → 57.7 MB), fd count constant at 22, **0 orphaned downstream processes** after exit.
 - **Chaos suite** (automated, in CI): hanging downstreams, 10 MB outputs, malformed responses, broken-command downstreams, upstream pipe closed without signal — all handled without crashing the gateway or leaking child processes.
-- 224 automated tests (unit + integration incl. real stdio round-trips against real downstream servers) run on every push.
+- 236 automated tests (unit + integration incl. real stdio round-trips against real downstream servers) run on every push.
 
 ## Methodology notes
 
