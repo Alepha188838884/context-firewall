@@ -4,9 +4,9 @@
 
 [![npm](https://img.shields.io/npm/v/context-firewall)](https://www.npmjs.com/package/context-firewall) [![CI](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml/badge.svg)](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml) [![license](https://img.shields.io/npm/l/context-firewall)](./LICENSE) [![Glama score](https://glama.ai/mcp/servers/Alepha188838884/context-firewall/badges/score.svg)](https://glama.ai/mcp/servers/Alepha188838884/context-firewall)
 
-**Shrink large MCP tool outputs by 60–95% before they reach your model's context window — and collapse 50+ tool definitions into 4.** Real HTML/JSON, measured — see [benchmarks](./docs/BENCHMARKS.md). Works with any MCP client, any model. Anything still over your configured token budget after compression is hard-truncated to that budget, with the full original always retrievable via `read_more`.
+**Shrink large MCP tool outputs by 60–95% before they reach your model's context window — and collapse 50+ tool definitions into 4.** Real HTML/JSON, measured — see [benchmarks](https://github.com/Alepha188838884/context-firewall/blob/main/docs/BENCHMARKS.md). Works with any MCP client, any model. Anything still over your configured token budget after compression is hard-truncated to that budget, with the full original always retrievable via `read_more`.
 
-![Session savings report card from a real session: 27 tools collapsed to 4, ~143,391 tokens saved, ~71.7% of a 200K context window](./docs/assets/report-card.svg)
+![Session savings report card from a real session: 27 tools collapsed to 4, ~143,391 tokens saved, ~71.7% of a 200K context window](https://raw.githubusercontent.com/Alepha188838884/context-firewall/main/docs/assets/report-card.svg)
 
 *The session report printed on shutdown — this one from a real 3-call session (two large file reads, one echo). Every number measured, none simulated.*
 
@@ -20,7 +20,7 @@ Context Firewall is a local MCP proxy that sits between your AI agent (Claude Co
 | Tool collapse | **122 → 4** exposed meta-tools (5 real downstream servers incl. official GitHub `github-mcp-server`, 85 tools) |
 | Tool-definition savings | **~28,600 tokens** *(estimated, chars ÷ 3.5)* — 102,158 raw definition chars vs. 2,146 exposed |
 
-All figures measured against real downstream MCP servers, not synthetic data — full methodology and tables in [docs/BENCHMARKS.md](./docs/BENCHMARKS.md).
+All figures measured against real downstream MCP servers, not synthetic data — full methodology and tables in [docs/BENCHMARKS.md](https://github.com/Alepha188838884/context-firewall/blob/main/docs/BENCHMARKS.md).
 
 ## What it does
 
