@@ -69,6 +69,17 @@ Output stays **valid JSON** after summarization (verified by re-parsing): homoge
 
 Every sample above, plus live fetches through the real `mcp-server-fetch` tool, lands at ≤ ~6,910 chars (the 2,000-token budget) with the full original stored and pageable via `read_more(handle, offset, length)`. Example: a live Wikipedia page fetched through `fetch/fetch` — 232,391 → 6,907 chars (97.0%).
 
+### Main-content extraction (v0.4.0)
+
+Compression ratio isn't the whole story — *what survives the truncation window* matters as much as how small it gets. Before v0.4.0, a chrome-heavy page like `bbc.com/news` compressed well but the ~7,000-char window filled up with nav links (`[Home](/)`, `[Sport](/sport)`, ...) before the first headline appeared. v0.4.0 adds deterministic main-content extraction before HTML→Markdown conversion: when a page has a recognizable content region (`<article>`/`<main>`), page chrome (nav, site headers/footers, hidden elements) is stripped first. Measured on the same real pages (2026-09-02):
+
+| Page | Window content before | Window content after |
+| --- | --- | --- |
+| bbc.com/news (386 KB) | site nav links only, zero headlines | ~15 real headline + teaser blocks, zero nav |
+| en.wikipedia.org (MCP article, 249 KB) | title + sidebar/nav chrome | infobox + article prose through the "Background"/"Features" sections |
+
+Extraction is conservative: an over-stripping guard skips chrome removal whenever it would delete most of the page's actual text, and any extraction failure falls back to whole-page conversion — output is never worse than the pre-extraction behavior, and the full original stays retrievable via `read_more`.
+
 ## 3. Pipeline latency
 
 In-process benchmark of `runPipeline()` (median of 5 runs, default policy, all stages enabled):

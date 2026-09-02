@@ -25,7 +25,7 @@ All figures measured against real downstream MCP servers, not synthetic data —
 ## What it does
 
 - **Progressive tool disclosure** — instead of loading every downstream tool's full schema at startup, the client sees 4 meta-tools (`list_tool_categories`, `search_tools`, `invoke_tool`, `read_more`) and only pays the token cost of a tool's full schema when it actually searches for it.
-- **Output compression pipeline** — large tool results are run through base64 stripping, HTML→Markdown conversion, JSON structure-aware summarization, and finally character-budget truncation, in that order, before being returned.
+- **Output compression pipeline** — large tool results are run through base64 stripping, main-content extraction + HTML→Markdown conversion (page chrome — nav, site headers/footers — is stripped when the page has a recognizable content region, so your token budget goes to actual content instead of navigation links), JSON structure-aware summarization, and finally character-budget truncation, in that order, before being returned.
 - **Full output retrievable via `read_more`** — nothing is silently thrown away. Every compressed output is stored in full (in memory, opaque handle) and can be paged back with `read_more(handle, offset, length)`.
 - **Session savings report** — on shutdown, prints a shareable terminal card (and optional Markdown file) showing tool-definition and output-token savings for the session, plus a breakdown of which tools saved the most.
 
@@ -171,7 +171,7 @@ Policy resolution order is `default` < `perServer` < `perTool` (later overrides 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `maxOutputTokens` | number | `2000` | Soft budget (chars ≈ tokens × 3.5) a compressed output is truncated to as a last resort. |
-| `htmlToMarkdown` | boolean | `true` | Convert detected HTML markup to Markdown. |
+| `htmlToMarkdown` | boolean | `true` | Convert detected HTML to Markdown, extracting the main content region (nav/header/footer chrome stripped) when one is recognizable. |
 | `stripBase64` | boolean | `true` | Replace base64 blobs (data URIs and bare blocks) with a `read_more` handle. |
 | `jsonSummary` | boolean | `true` | Collapse homogeneous JSON arrays and trim long string fields, keeping valid JSON. |
 | `llmSummary` | boolean | `false` | Semantically summarize over-budget outputs with an LLM of your choice. Requires the top-level `llm` block - see [LLM summarization (opt-in)](#llm-summarization-opt-in). |
@@ -203,7 +203,7 @@ Top-level (not nested under `compression`). Per-`invoke_tool` timeout in millise
 
 ## How it works
 
-The client calls `list_tool_categories()` to see what's connected and what it's roughly capable of, `search_tools(query)` to pull the full input schema for candidate tools, `invoke_tool(server, tool, args)` to actually run one (compressed on the way back), and `read_more(handle, offset, length)` to page through anything that got compressed. Compression, when it runs, always applies in the same order: strip base64 → HTML to Markdown → JSON structure summary → truncate to budget (if the opt-in LLM summarization stage below is enabled, it runs right before truncation). Security-relevant outputs (errors, permission/warning/confirmation messages) are never silently compressed - they pass straight through, only hard-capped at 50,000 characters to prevent a single runaway error dump from blowing out the caller's context.
+The client calls `list_tool_categories()` to see what's connected and what it's roughly capable of, `search_tools(query)` to pull the full input schema for candidate tools, `invoke_tool(server, tool, args)` to actually run one (compressed on the way back), and `read_more(handle, offset, length)` to page through anything that got compressed. Compression, when it runs, always applies in the same order: strip base64 → main-content extraction + HTML to Markdown → JSON structure summary → truncate to budget (if the opt-in LLM summarization stage below is enabled, it runs right before truncation). Content extraction is conservative by design: it only strips chrome when a semantic content region (`<article>`/`<main>`) is recognizable or the removal clearly isn't the page's actual content, and falls back to whole-page conversion otherwise — the full original is always retrievable via `read_more` either way. Security-relevant outputs (errors, permission/warning/confirmation messages) are never silently compressed - they pass straight through, only hard-capped at 50,000 characters to prevent a single runaway error dump from blowing out the caller's context.
 
 ## LLM summarization (opt-in)
 

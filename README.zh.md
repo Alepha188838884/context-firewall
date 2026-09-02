@@ -25,7 +25,7 @@ Context Firewall 是一个本地 MCP 代理,坐在你的 AI agent(Claude Code、
 ## 它做什么
 
 - **渐进式工具披露** —— 客户端不再在启动时加载所有下游工具的完整 schema,而是只看到 4 个元工具(`list_tool_categories`、`search_tools`、`invoke_tool`、`read_more`);只有真正搜索到某个工具时,才会为它的完整 schema 付出 token 成本。
-- **输出压缩流水线** —— 大体积的工具结果依次经过 base64 剥离、HTML→Markdown 转换、JSON 结构感知摘要、最后是字符预算截断,才会被返回。
+- **输出压缩流水线** —— 大体积的工具结果依次经过 base64 剥离、正文提取 + HTML→Markdown 转换(当页面存在可识别的正文区域时,导航、站点页眉/页脚等 chrome 会被剥离,让 token 预算花在真正的内容而不是导航链接上)、JSON 结构感知摘要、最后是字符预算截断,才会被返回。
 - **完整输出可通过 `read_more` 取回** —— 没有任何内容被静默丢弃。每一次被压缩的输出都会完整存入本地(内存中,配一个不透明句柄),可以用 `read_more(handle, offset, length)` 分页取回。
 - **session 节省报告** —— 进程退出时,会打印一张可分享的终端卡片(也可选择写入 Markdown 文件),展示本次 session 工具定义和输出的 token 节省量,以及节省最多的工具排行。
 
@@ -171,7 +171,7 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 | 字段 | 类型 | 默认值 | 含义 |
 | --- | --- | --- | --- |
 | `maxOutputTokens` | number | `2000` | 软预算(字符数 ≈ token 数 × 3.5),作为最后兜底,压缩后的输出会截断到此预算内。 |
-| `htmlToMarkdown` | boolean | `true` | 将识别出的 HTML 标记转换为 Markdown。 |
+| `htmlToMarkdown` | boolean | `true` | 将识别出的 HTML 转换为 Markdown,并在可识别正文区域时先做正文提取(剥离 nav/页眉/页脚 chrome)。 |
 | `stripBase64` | boolean | `true` | 把 base64 大块(data URI 和裸块)替换为可用 `read_more` 取回的句柄。 |
 | `jsonSummary` | boolean | `true` | 折叠同构 JSON 数组、裁剪超长字符串字段,同时保持结果仍是合法 JSON。 |
 | `llmSummary` | boolean | `false` | 用你自选的 LLM 对超预算输出做语义摘要。需要配合顶层 `llm` 配置块——见 [LLM 语义摘要(可选启用)](#llm-语义摘要可选启用)。 |
@@ -203,7 +203,7 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 
 ## 工作原理
 
-客户端先调用 `list_tool_categories()` 看看连接了哪些下游、大致有什么能力,再用 `search_tools(query)` 为候选工具拉取完整的输入 schema,然后用 `invoke_tool(server, tool, args)` 实际调用某个工具(返回前会经过压缩),最后可以用 `read_more(handle, offset, length)` 分页取回被压缩掉的部分。压缩一旦触发,顺序永远固定:base64 剥离 → HTML 转 Markdown → JSON 结构摘要 → 截断到预算内(若启用了下面的可选 LLM 语义摘要阶段,它会紧挨在截断之前运行)。安全相关的输出(错误信息、权限/警告/确认类提示)绝不会被静默压缩——它们会直接透传,仅在超过 50,000 字符时做硬性截断,防止单次异常的报错洪流把调用方的上下文撑爆。
+客户端先调用 `list_tool_categories()` 看看连接了哪些下游、大致有什么能力,再用 `search_tools(query)` 为候选工具拉取完整的输入 schema,然后用 `invoke_tool(server, tool, args)` 实际调用某个工具(返回前会经过压缩),最后可以用 `read_more(handle, offset, length)` 分页取回被压缩掉的部分。压缩一旦触发,顺序永远固定:base64 剥离 → 正文提取 + HTML 转 Markdown → JSON 结构摘要 → 截断到预算内(若启用了下面的可选 LLM 语义摘要阶段,它会紧挨在截断之前运行)。正文提取在设计上是保守的:只有当页面存在可识别的语义正文区域(`<article>`/`<main>`),或被剥离的明显不是页面的实际内容时才会剥离 chrome,否则回退到整页转换——无论哪条路径,完整原文始终可通过 `read_more` 取回。安全相关的输出(错误信息、权限/警告/确认类提示)绝不会被静默压缩——它们会直接透传,仅在超过 50,000 字符时做硬性截断,防止单次异常的报错洪流把调用方的上下文撑爆。
 
 ## LLM 语义摘要(可选启用)
 
