@@ -64,15 +64,21 @@ async function waitForDownstreams(client: Client, names: string[], timeoutMs: nu
   }
 }
 
-// pgrep -f matches the full command line, so a random per-test tag baked into a downstream's
-// argv reliably identifies exactly that one process (pgrep excludes itself from results).
-function pidsForTag(tag: string): number[] {
-  try {
-    const out = execSync(`pgrep -f ${tag}`).toString().trim();
-    return out ? out.split('\n').map(Number) : [];
-  } catch {
-    return []; // pgrep exits 1 when nothing matches
-  }
+// Scan the full process table with `ps` and filter in JS instead of `pgrep -f <tag>`: the
+// pgrep form runs through execSync's `/bin/sh -c` wrapper whose own command line contains the
+// tag, and on Linux that wrapper can survive long enough to match itself (macOS's sh execs the
+// simple command, replacing the wrapper, so it never shows there). `ps` never receives the tag
+// as an argument, so nothing here can self-match. Returning args too means an assertion
+// failure prints the full command line of any unexpected extra process.
+function procsForTag(tag: string): { pid: number; args: string }[] {
+  const out = execSync('ps -eo pid=,args=').toString();
+  return out
+    .split('\n')
+    .filter((line) => line.includes(tag))
+    .map((line) => {
+      const m = line.trim().match(/^(\d+)\s+(.*)$/);
+      return { pid: Number(m![1]), args: m![2] };
+    });
 }
 
 describe('P1-2 #1: kill -9 downstream mid-invoke', () => {
@@ -99,8 +105,8 @@ describe('P1-2 #1: kill -9 downstream mid-invoke', () => {
   it(
     'returns isError for the in-flight call, gateway survives, other servers unaffected',
     async () => {
-      const pids = pidsForTag(victimTag);
-      expect(pids).toHaveLength(1);
+      const procs = procsForTag(victimTag);
+      expect(procs).toHaveLength(1);
 
       const callPromise = client.callTool({
         name: 'invoke_tool',
@@ -110,7 +116,7 @@ describe('P1-2 #1: kill -9 downstream mid-invoke', () => {
       // Give the call time to actually reach the downstream (and the downstream time to
       // register the tools/call frame) before pulling the rug out.
       await new Promise((r) => setTimeout(r, 300));
-      process.kill(pids[0], 'SIGKILL');
+      process.kill(procs[0].pid, 'SIGKILL');
 
       const result = await callPromise;
       expect(result.isError).toBe(true);
@@ -362,7 +368,7 @@ describe('P1-2 #7: upstream disconnect reclaims the downstream subprocess (no or
       const client = await connectGateway(configPath);
       await waitForDownstreams(client, ['echo'], 15_000);
 
-      expect(pidsForTag(tag)).toHaveLength(1);
+      expect(procsForTag(tag)).toHaveLength(1);
 
       // Simulate the upstream host disconnecting: the client just ends the pipe. This exercises
       // a different path than shutdown.test.ts's SIGINT test - see the stdin 'end' handler in
@@ -372,7 +378,7 @@ describe('P1-2 #7: upstream disconnect reclaims the downstream subprocess (no or
 
       await new Promise((r) => setTimeout(r, 4000));
 
-      expect(pidsForTag(tag)).toEqual([]);
+      expect(procsForTag(tag)).toEqual([]);
     },
     20_000
   );
