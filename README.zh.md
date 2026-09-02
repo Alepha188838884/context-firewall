@@ -2,19 +2,25 @@
 
 [English README](./README.md)
 
-**把 50+ 个 MCP 工具变成 4 个,再把大体积工具输出瘦身 60–95%(真实 HTML/JSON 实测,见 [benchmark](./STATE.md))——适配任意 MCP 客户端、任意模型。** 压缩后仍超出你配置的 token 预算的输出,会被硬截断到该预算以内,完整原文始终可通过 `read_more` 取回。
+[![npm](https://img.shields.io/npm/v/context-firewall)](https://www.npmjs.com/package/context-firewall) [![CI](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml/badge.svg)](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml) [![license](https://img.shields.io/npm/l/context-firewall)](./LICENSE) [![Glama score](https://glama.ai/mcp/servers/Alepha188838884/context-firewall/badges/score.svg)](https://glama.ai/mcp/servers/Alepha188838884/context-firewall)
 
-Context Firewall 是一个本地 MCP 代理,坐在你的 AI agent(Claude Code、Claude Desktop、Cursor、Cline……)和你配置的每一个下游 MCP server 之间。不管下游有多少个工具,客户端始终只看到 4 个工具;在巨大的工具输出(原始 HTML、base64 大块、超长 JSON)进入模型上下文窗口之前,先把它们压缩掉。
+**在大体积 MCP 工具输出进入模型上下文窗口之前,先把它瘦身 60–95%——同时把 50+ 个工具定义收敛成 4 个。** 真实 HTML/JSON 实测,见 [benchmarks](./docs/BENCHMARKS.md)。适配任意 MCP 客户端、任意模型。压缩后仍超出你配置的 token 预算的输出,会被硬截断到该预算以内,完整原文始终可通过 `read_more` 取回。
+
+![真实 session 的节省报告卡片:27 个工具收敛为 4 个,节省约 143,391 tokens,约占 200K 上下文窗口的 71.7%](./docs/assets/report-card.svg)
+
+*进程退出时打印的 session 报告——这张来自一次真实的 3 调用 session(两次大文件读取、一次 echo)。每个数字都是实测,没有模拟。*
+
+Context Firewall 是一个本地 MCP 代理,坐在你的 AI agent(Claude Code、Claude Desktop、Cursor、Cline……)和你配置的每一个下游 MCP server 之间。巨大的工具输出(原始 HTML、base64 大块、超长 JSON)在进入模型上下文窗口之前会先被压缩;不管下游有多少个工具,客户端始终只看到 4 个。
 
 ## 实测数据
 
 | 指标 | 结果 |
 | --- | --- |
+| 输出压缩 | 真实 HTML 页面 **70–94%**、大体积结构化 JSON **约 97%**(智能压缩阶段本身的数字,不含预算截断)——例如通过 `fetch` 工具实时抓取的 Wikipedia 页面:232,391 → 6,907 字符(**97.0%**,实测);经 `jsonSummary` 阶段处理的 GitHub issues JSON:186,810 → 3,480 字符(**98.1%**,实测) |
 | 工具收敛 | **122 → 4** 个暴露的元工具(5 个真实下游 server,含官方 GitHub `github-mcp-server`,85 个工具) |
 | 工具定义节省 | **约 28,600 tokens**(*估算值,字符数 ÷ 3.5*)—— 原始定义 102,158 字符 vs. 暴露后 2,146 字符 |
-| 输出压缩 | 真实 HTML/JSON 上 **60–95%+**,例如通过 `fetch` 工具实时抓取的 Wikipedia 页面:232,391 → 6,907 字符(**97.0%**,实测);经 `jsonSummary` 阶段处理的 GitHub issues JSON:186,810 → 3,480 字符(**98.1%**,实测) |
 
-以上数字均基于真实下游 MCP server 实测,非合成数据——完整方法论见 [STATE.md](./STATE.md)("P1-1 — github server portion" 一节)。
+以上数字均基于真实下游 MCP server 实测,非合成数据——完整方法论与数据表见 [docs/BENCHMARKS.md](./docs/BENCHMARKS.md)。
 
 ## 它做什么
 
@@ -122,7 +128,7 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 | Cursor | 配置格式已核实文档,欢迎社区实测反馈 |
 | Cline | 配置格式已核实文档,欢迎社区实测反馈 |
 
-\* 通过 MCP 协议集成测试验证(176 个自动化测试,含针对真实下游 server 的完整 stdio 协议往返)。欢迎真实客户端使用反馈。
+\* 通过 MCP 协议集成测试验证(224 个自动化测试,含针对真实下游 server 的完整 stdio 协议往返,[每次 push 都在 CI 上运行](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml))。欢迎真实客户端使用反馈。
 
 ## 配置
 

@@ -2,19 +2,25 @@
 
 [中文文档](./README.zh.md)
 
-**Turn 50+ MCP tools into 4, and shrink large tool outputs by 60–95% (real HTML/JSON, measured — see [benchmark](./STATE.md)) — for any MCP client, any model.** Any output still over your configured token budget after compression is hard-truncated to that budget, with the full original retrievable via `read_more`.
+[![npm](https://img.shields.io/npm/v/context-firewall)](https://www.npmjs.com/package/context-firewall) [![CI](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml/badge.svg)](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml) [![license](https://img.shields.io/npm/l/context-firewall)](./LICENSE) [![Glama score](https://glama.ai/mcp/servers/Alepha188838884/context-firewall/badges/score.svg)](https://glama.ai/mcp/servers/Alepha188838884/context-firewall)
 
-Context Firewall is a local MCP proxy that sits between your AI agent (Claude Code, Claude Desktop, Cursor, Cline, ...) and every downstream MCP server you've configured. It exposes exactly 4 tools to the client, no matter how many tools the downstream servers actually have, and compresses large tool outputs (raw HTML, base64 blobs, giant JSON) before they ever reach the model's context window.
+**Shrink large MCP tool outputs by 60–95% before they reach your model's context window — and collapse 50+ tool definitions into 4.** Real HTML/JSON, measured — see [benchmarks](./docs/BENCHMARKS.md). Works with any MCP client, any model. Anything still over your configured token budget after compression is hard-truncated to that budget, with the full original always retrievable via `read_more`.
+
+![Session savings report card from a real session: 27 tools collapsed to 4, ~143,391 tokens saved, ~71.7% of a 200K context window](./docs/assets/report-card.svg)
+
+*The session report printed on shutdown — this one from a real 3-call session (two large file reads, one echo). Every number measured, none simulated.*
+
+Context Firewall is a local MCP proxy that sits between your AI agent (Claude Code, Claude Desktop, Cursor, Cline, ...) and every downstream MCP server you've configured. Large tool outputs (raw HTML, base64 blobs, giant JSON) are compressed before they ever reach the model's context window, and the client sees exactly 4 tools no matter how many the downstream servers actually have.
 
 ## Measured results
 
 | Metric | Result |
 | --- | --- |
+| Output compression | **70–94%** on real HTML pages, **~97%** on large structured JSON (smart stages alone, before budget truncation) — e.g. a live Wikipedia page via the `fetch` tool: 232,391 → 6,907 chars (**97.0%**, measured); a GitHub issues JSON payload via the `jsonSummary` stage: 186,810 → 3,480 chars (**98.1%**, measured) |
 | Tool collapse | **122 → 4** exposed meta-tools (5 real downstream servers incl. official GitHub `github-mcp-server`, 85 tools) |
 | Tool-definition savings | **~28,600 tokens** *(estimated, chars ÷ 3.5)* — 102,158 raw definition chars vs. 2,146 exposed |
-| Output compression | **60–95%+** on real-world HTML/JSON, e.g. a live Wikipedia page via the `fetch` tool: 232,391 → 6,907 chars (**97.0%**, measured); a GitHub issues JSON payload via the `jsonSummary` stage: 186,810 → 3,480 chars (**98.1%**, measured) |
 
-All figures measured against real downstream MCP servers, not synthetic data — see [STATE.md](./STATE.md) ("P1-1 — github server portion" section) for full methodology.
+All figures measured against real downstream MCP servers, not synthetic data — full methodology and tables in [docs/BENCHMARKS.md](./docs/BENCHMARKS.md).
 
 ## What it does
 
@@ -122,7 +128,7 @@ claude mcp add --transport stdio context-firewall -- npx -y context-firewall --c
 | Cursor | config format documented, community testing welcome |
 | Cline | config format documented, community testing welcome |
 
-\* Verified via MCP protocol integration tests (176 automated tests, including full stdio protocol round-trips against real downstream servers). Real-client reports welcome.
+\* Verified via MCP protocol integration tests (224 automated tests, including full stdio protocol round-trips against real downstream servers, [run in CI on every push](https://github.com/Alepha188838884/context-firewall/actions/workflows/ci.yml)). Real-client reports welcome.
 
 ## Configuration
 
