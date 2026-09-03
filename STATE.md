@@ -1088,3 +1088,24 @@ forward order is O(n²), reverse order is O(n).
   ("Your commits: 0" on OrcaRouter dashboard; commit avatars grey).
 - Fire the drafted Chinese articles (`promo-article.zh.md`, still intentionally uncommitted);
   Discord engagement loop (the only channel that ever produced a star) idle since 08-03.
+
+## v0.4.0 shipped (2026-09-03)
+
+- **npm publish 0.4.0 — DONE** (2026-09-03 00:43 UTC). Auth path that finally worked: `npm login`
+  had expired (E401) → user re-ran `npm login`; publish then hit EOTP (2FA) non-interactively →
+  ran `script -q <log> npm publish` under a pseudo-TTY in the background, npm's web-auth flow
+  opened the browser approval page, user approved, publish completed. (A second attempt racing
+  it failed with "cannot publish over previously published versions: 0.4.0" — that error was
+  the success signal.) Smoke test: `npx -y context-firewall@0.4.0 --version` → `0.4.0`.
+- **GitHub release v0.4.0 — DONE** (notes from `.scratch/release-notes-v0.4.0.md`, covers
+  main-content extraction + LLM summarization + CI/benchmarks).
+- README image/benchmark links converted to absolute URLs before publish (npm README doesn't
+  resolve repo-relative paths).
+- `promo-article.zh.md` refreshed for current state: star count 2, BENCHMARKS.md links,
+  removed inaccurate "单二进制" claim, added "by default" qualifier to the no-external-API
+  claim (v0.4.0 LLM stage), added main-content-extraction pitch to both 掘金 and V2EX versions.
+  Still intentionally uncommitted; ready to copy-paste once the user logs into 掘金/V2EX.
+- Still user-side: GitHub settings/emails — add j8006652@gmail.com + 2639532448@qq.com and click
+  the mailed verification links (page confirmed to need NO passkey/sudo right now; the automation
+  permission layer correctly refuses to let an agent write into account-security settings, so
+  this stays manual). Then check OrcaRouter dashboard "Your commits" flips 0 → 35.
